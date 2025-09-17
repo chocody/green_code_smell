@@ -1,0 +1,18 @@
+language: python
+python:
+  - "3.10"
+install:
+  - pip install -r requirements.txt
+  - pip install build twine
+script:
+  - python -m build
+  - pytest
+deploy:
+  provider: pypi
+  username: __token__
+  password: $TEST_PYPI_TOKEN
+  repository_url: https://test.pypi.org/legacy/
+  distributions: "sdist bdist_wheel"
+  skip_existing: true
+  on:
+    branch: main
