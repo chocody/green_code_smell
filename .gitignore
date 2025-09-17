@@ -28,3 +28,4 @@ __pypackages__/
 .env
 .venv
 .vscode/
+venv/
