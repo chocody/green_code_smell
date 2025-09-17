@@ -1,6 +1,6 @@
 [project]
 name = "green_code_smell"
-version = "0.0.1"
+version = "0.0.1.1"
 authors = [
   { name="chocody", email="chgun47@gmail.com" },
 ]
