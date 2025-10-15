@@ -29,3 +29,4 @@ __pypackages__/
 .venv
 .vscode/
 venv/
+__pycache__
