@@ -32,11 +32,11 @@ Examples:
     
     parser.add_argument('file', help='Path to Python file to check')
     
-    # Logging rules
+    #excessive log rule
     parser.add_argument('--no-log-check', action='store_true', 
                        help='Disable excessive logging detection')
     
-    # God Class rules
+    #god class rule
     parser.add_argument('--no-god-class', action='store_true', 
                        help='Disable God Class detection')
     parser.add_argument('--max-methods', type=int, default=10, 
@@ -46,7 +46,7 @@ Examples:
     parser.add_argument('--max-lines', type=int, default=200, 
                        help='Max lines for God Class (default: 200)')
     
-    # Duplicated Code rules
+    #duplicadted code rule
     parser.add_argument('--no-dup-check', action='store_true', 
                        help='Disable duplicated code detection')
     parser.add_argument('--dup-min-lines', type=int, default=5, 
@@ -56,12 +56,11 @@ Examples:
     
     args = parser.parse_args()
     
-    # Check if file exists
+    #check if file exist
     if not Path(args.file).exists():
         print(f"❌ Error: File '{args.file}' not found!")
         sys.exit(1)
-    
-    # Setup rules
+    #setup rule
     rules = []
     
     if not args.no_log_check:
@@ -84,7 +83,6 @@ Examples:
         print("⚠️  Warning: No rules enabled!")
         sys.exit(0)
     
-    # Analyze file
     try:
         print(f"🔍 Analyzing {args.file}...\n")
         issues = analyze_file(args.file, rules)
@@ -95,7 +93,7 @@ Examples:
             print(f"⚠️  Found {len(issues)} issue(s) in {args.file}:")
             print("=" * 80)
             
-            # Group by rule
+            #group by rule
             by_rule = {}
             for issue in issues:
                 rule = issue['rule']
