@@ -1,4 +1,3 @@
-# src/green_code_smell/__init__.py
 from . import core
 from . import cli
 
