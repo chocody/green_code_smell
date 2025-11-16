@@ -141,15 +141,3 @@ class DataProcessor:
             'count': count,
             'average': average
         }
-
-# Test the detection
-# if __name__ == "__main__":
-#     from green_code_smell.core import analyze_file
-#     from green_code_smell.rules.duplicated_code import DuplicatedCodeRule
-    
-#     rules = [DuplicatedCodeRule(min_lines=5, min_occurrences=2)]
-#     issues = analyze_file(__file__, rules)
-    
-#     print(f"Found {len(issues)} duplication issue(s):\n")
-#     for issue in issues:
-#         print(f"{issue['rule']} (line {issue['lineno']}): {issue['message']}\n")

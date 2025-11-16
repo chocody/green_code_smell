@@ -1,26 +1,9 @@
-class GodClassExample:
-    """
-    This is a God Class - it has too many responsibilities!
-    It handles user management, database operations, logging,
-    email sending, file operations, and more.
-    """
+class UserManager:
+    """Handles user management operations only"""
     
     def __init__(self):
-        # Too many attributes
         self.users = []
-        self.database_connection = None
-        self.logger = None
-        self.email_server = None
-        self.file_handler = None
-        self.cache = {}
-        self.settings = {}
-        self.session_data = {}
-        self.api_keys = {}
-        self.permissions = {}
-        self.audit_log = []
-        self.error_queue = []
     
-    # User management methods
     def add_user(self, user):
         self.users.append(user)
     
@@ -34,12 +17,18 @@ class GodClassExample:
     
     def find_user(self, user_id):
         return next((u for u in self.users if u.id == user_id), None)
+
+
+class DatabaseManager:
+    """Handles database operations only"""
     
-    # Database methods
-    def connect_database(self):
+    def __init__(self):
+        self.connection = None
+    
+    def connect(self):
         pass
     
-    def disconnect_database(self):
+    def disconnect(self):
         pass
     
     def execute_query(self, query):
@@ -50,18 +39,30 @@ class GodClassExample:
     
     def rollback_transaction(self):
         pass
+
+
+class Logger:
+    """Handles logging operations only"""
     
-    # Logging methods
-    def log_info(self, message):
+    def __init__(self):
         pass
     
-    def log_error(self, message):
+    def info(self, message):
         pass
     
-    def log_warning(self, message):
+    def error(self, message):
         pass
     
-    # Email methods
+    def warning(self, message):
+        pass
+
+
+class EmailService:
+    """Handles email operations only"""
+    
+    def __init__(self):
+        self.server = None
+    
     def send_email(self, to, subject, body):
         pass
     
@@ -70,8 +71,14 @@ class GodClassExample:
     
     def validate_email(self, email):
         pass
+
+
+class FileManager:
+    """Handles file operations only"""
     
-    # File operations
+    def __init__(self):
+        self.handler = None
+    
     def read_file(self, path):
         pass
     
@@ -80,18 +87,30 @@ class GodClassExample:
     
     def delete_file(self, path):
         pass
+
+
+class CacheManager:
+    """Handles cache operations only"""
     
-    # Cache operations
-    def get_from_cache(self, key):
+    def __init__(self):
+        self.cache = {}
+    
+    def get(self, key):
         return self.cache.get(key)
     
-    def set_in_cache(self, key, value):
+    def set(self, key, value):
         self.cache[key] = value
     
-    def clear_cache(self):
+    def clear(self):
         self.cache.clear()
+
+
+class SettingsManager:
+    """Handles settings management only"""
     
-    # Settings management
+    def __init__(self):
+        self.settings = {}
+    
     def load_settings(self):
         pass
     
@@ -103,8 +122,14 @@ class GodClassExample:
     
     def set_setting(self, key, value):
         self.settings[key] = value
+
+
+class PermissionManager:
+    """Handles permission management only"""
     
-    # Permission management
+    def __init__(self):
+        self.permissions = {}
+    
     def check_permission(self, user, action):
         pass
     
@@ -113,8 +138,14 @@ class GodClassExample:
     
     def revoke_permission(self, user, action):
         pass
+
+
+class AuditLogger:
+    """Handles audit logging only"""
     
-    # Audit logging
+    def __init__(self):
+        self.audit_log = []
+    
     def log_audit(self, action, user, details):
         self.audit_log.append({
             'action': action,
