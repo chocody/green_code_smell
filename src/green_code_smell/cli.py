@@ -8,6 +8,7 @@ try:
     from green_code_smell.rules.log_excessive import LogExcessiveRule
     from green_code_smell.rules.god_class import GodClassRule
     from green_code_smell.rules.duplicated_code import DuplicatedCodeRule
+    from green_code_smell.rules.long_method import LongMethodRule
 except ImportError:
     # If running directly, use relative imports
     import os
@@ -16,6 +17,16 @@ except ImportError:
     from src.green_code_smell.rules.log_excessive import LogExcessiveRule
     from src.green_code_smell.rules.god_class import GodClassRule
     from src.green_code_smell.rules.duplicated_code import DuplicatedCodeRule
+    from src.green_code_smell.rules.long_method import LongMethodRule
+
+# Import CodeCarbon
+try:
+    from codecarbon import EmissionsTracker
+    CODECARBON_AVAILABLE = True
+except ImportError:
+    CODECARBON_AVAILABLE = False
+    print("⚠️  Warning: codecarbon not installed. Carbon tracking disabled.")
+    print("   Install with: pip install codecarbon\n")
 
 def main():
     parser = argparse.ArgumentParser(
@@ -27,6 +38,8 @@ Examples:
   %(prog)s myfile.py --no-log-check
   %(prog)s myfile.py --max-methods 5
   %(prog)s myfile.py --dup-min-lines 3
+  %(prog)s myfile.py --max-loc 30 --max-cyclomatic 3
+  %(prog)s myfile.py --no-carbon  # Disable carbon tracking
         """
     )
     
@@ -54,12 +67,27 @@ Examples:
     parser.add_argument('--dup-min-occurrences', type=int, default=2, 
                        help='Min occurrences for duplicated code (default: 2)')
     
+    #long method rule
+    parser.add_argument('--no-long-method', action='store_true', 
+                       help='Disable Long Method detection')
+    parser.add_argument('--max-loc', type=int, default=25, 
+                       help='Max lines of code for method (default: 25)')
+    parser.add_argument('--max-cyclomatic', type=int, default=10, 
+                       help='Max cyclomatic complexity (default: 10)')
+    parser.add_argument('--max-loop', type=int, default=2, 
+                       help='Max loop (default: 2)')
+    
+    #carbon tracking
+    parser.add_argument('--no-carbon', action='store_true', 
+                       help='Disable carbon emissions tracking')
+    
     args = parser.parse_args()
     
     #check if file exist
     if not Path(args.file).exists():
         print(f"❌ Error: File '{args.file}' not found!")
         sys.exit(1)
+    
     #setup rule
     rules = []
     
@@ -79,13 +107,37 @@ Examples:
             min_occurrences=args.dup_min_occurrences
         ))
     
+    if not args.no_long_method:
+        rules.append(LongMethodRule(
+            max_loc=args.max_loc,
+            max_cyclomatic=args.max_cyclomatic
+        ))
+    
     if not rules:
         print("⚠️  Warning: No rules enabled!")
         sys.exit(0)
     
+    # Initialize carbon tracker
+    tracker = None
+    if CODECARBON_AVAILABLE and not args.no_carbon:
+        try:
+            tracker = EmissionsTracker()
+            tracker.start()
+        except Exception as e:
+            print(f"⚠️  Warning: Could not start carbon tracking: {e}\n")
+            tracker = None
+    
     try:
         print(f"🔍 Analyzing {args.file}...\n")
         issues = analyze_file(args.file, rules)
+        
+        # Stop carbon tracker
+        emissions = None
+        if tracker:
+            try:
+                emissions = tracker.stop()
+            except Exception as e:
+                print(f"⚠️  Warning: Could not stop carbon tracking: {e}")
         
         if not issues:
             print(f"✅ No issues found in {args.file}!")
@@ -108,8 +160,32 @@ Examples:
                     print(f"  Line {issue['lineno']}: {issue['message']}")
             
             print("\n" + "=" * 80)
+        
+        # Display carbon emissions with more precision
+        if emissions is not None:
+            print(f"\n🌱 Carbon Emissions:")
+            # Convert to more readable units
+            mg_co2 = emissions * 1_000_000  # kg to mg
+            ug_co2 = emissions * 1_000_000_000  # kg to µg
             
+            if emissions >= 0.001:  # >= 1g
+                print(f"   {emissions * 1000:.4f} g CO2")
+            elif emissions >= 0.000001:  # >= 1mg
+                print(f"   {mg_co2:.4f} mg CO2")
+            else:  # < 1mg
+                print(f"   {ug_co2:.4f} µg CO2")
+            
+            # Also show in scientific notation for very small values
+            print(f"   ({emissions:.6e} kg CO2)")
+        
     except Exception as e:
+        # Make sure to stop tracker even on error
+        if tracker:
+            try:
+                tracker.stop()
+            except:
+                pass
+        
         print(f"❌ Error analyzing file: {e}")
         import traceback
         traceback.print_exc()
