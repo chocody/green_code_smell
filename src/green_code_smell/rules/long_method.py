@@ -1,7 +1,7 @@
 import ast
 
 class LongMethodRule:
-    id = "GCS001"
+    id = "GCS004"
     name = "LongMethod"
     description = "Detects methods that are too long based on LOC and cyclomatic complexity."
     severity = "Medium"
