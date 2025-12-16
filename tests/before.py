@@ -100,7 +100,81 @@ class Company:
                 f"Paying employee {employee.name} a hourly rate of \
                 ${employee.hourly_rate} for {employee.amount} hours."
             )
+    
+    def generate_payroll_report(self) -> None:
+        total_salary = 0
+        total_hourly = 0
 
+        for employee in self.employees:
+            for _ in range(2):
+                if isinstance(employee, SalariedEmployee):
+                    total_salary += employee.monthly_salary
+                elif isinstance(employee, HourlyEmployee):
+                    total_hourly += employee.hourly_rate * employee.amount
+        
+        i = 0
+        while i < 3:
+            print("Processing payroll summary...")
+            i += 1
+        
+        print(f"Total salaried payout: {total_salary}")
+        print(f"Total hourly payout: {total_hourly}")
+
+
+    def generate_annual_report(self, year: int) -> None:
+        """
+        Generate an annual report for the company.
+        This method is intentionally long and complex
+        to demonstrate a Long Method code smell.
+        """
+        print(f"Generating annual report for year {year}")
+        total_salary = 0
+        total_hourly = 0
+        managers = []
+        interns = []
+        others = []
+
+        # Loop 1: classify employees
+        for employee in self.employees:
+            if employee.role == "manager":
+                managers.append(employee)
+            elif employee.role == "intern":
+                interns.append(employee)
+            else:
+                others.append(employee)
+
+        # Loop 2: calculate salary costs
+        for manager in managers:
+            if isinstance(manager, SalariedEmployee):
+                total_salary += manager.monthly_salary * 12
+
+        # Loop 3: calculate hourly employee costs
+        for employee in others:
+            if isinstance(employee, HourlyEmployee):
+                for month in range(12):
+                    total_hourly += employee.hourly_rate * employee.amount
+
+        # Additional control logic
+        if total_salary > 100000:
+            print("Warning: High annual salary cost detected")
+
+        if total_hourly > 50000:
+            print("Warning: High hourly cost detected")
+
+        # Loop 4: print intern summary
+        i = 0
+        while i < len(interns):
+            print(f"Intern: {interns[i].name}")
+            i += 1
+
+        print("===== Annual Report Summary =====")
+        print(f"Year: {year}")
+        print(f"Managers: {len(managers)}")
+        print(f"Interns: {len(interns)}")
+        print(f"Other Employees: {len(others)}")
+        print(f"Total salaried payout: {total_salary}")
+        print(f"Total hourly payout: {total_hourly}")
+        print("===== End of Report =====")
 
 def main() -> None:
     """Main function."""
