@@ -30,3 +30,4 @@ __pypackages__/
 .vscode/
 venv/
 __pycache__
+.csv
