@@ -65,6 +65,9 @@ def analyze_code_smells(file_path, args):
     
     issues = analyze_file(args.file, rules)
 
+    display_code_smell_info(issues, args)
+
+def display_code_smell_info(issues, args):
     if not issues:
         print(f"✅ No issues found in {args.file}!")
     else:
@@ -89,29 +92,16 @@ def analyze_code_smells(file_path, args):
 
 def carbon_track(file_path, args):
     #check if file exist
-
-    # flag = False
     if not Path(file_path).exists():
         print(f"❌ Error: File '{file_path}' not found!")
         sys.exit(1)
     
-     # Initialize carbon tracker
+    # Initialize carbon tracker
     avg_emissions = []
-    for i in range(3): # rules for 30 runs
+    for i in range(31): # rules for 30 runs
         tracker = None
         if CODECARBON_AVAILABLE and not args.no_carbon:
             try:
-
-                # if flag == False:
-                #     tracker = EmissionsTracker()
-                #     flag = True
-                # else:
-                #     tracker = EmissionsTracker(
-                #     log_level="error",  # Only show errors
-                #     save_to_file=False,  # Don't save to file
-                #     save_to_api=False,   # Don't send to API
-                # )
-
                 tracker = EmissionsTracker(
                     log_level="error",  # Only show errors
                     save_to_file=False,  # Don't save to file
@@ -122,9 +112,9 @@ def carbon_track(file_path, args):
                 print(f"⚠️  Warning: Could not start carbon tracking: {e}\n")
                 tracker = None
                 break
-        
+
+        # Stop carbon tracker   
         try:
-            # Stop carbon tracker
             emissions = None
             if tracker:
                 try:
@@ -135,23 +125,16 @@ def carbon_track(file_path, args):
             avg_emissions.append(emissions)
             
         except Exception as e:
-            # Make sure to stop tracker even on error
-            if tracker:
-                try:
-                    tracker.stop()
-                except:
-                    pass
-            
+            tracker.stop()
             print(f"❌ Error analyzing file: {e}")
             import traceback
             traceback.print_exc()
             sys.exit(1)
-            break
 
-    print("\n" + "=" * 80)
     # Calculate average emissions
+    print("\n" + "=" * 80)
+    print("Carbon track history each loops: ", avg_emissions)
     print(f"\n 🌿 Estimated carbon emissions for analyzing ({emissions:.6e} kg CO2)")
-
     print("\n" + "=" * 80)
 
 def main():
