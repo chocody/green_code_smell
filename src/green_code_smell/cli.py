@@ -4,6 +4,7 @@ from pathlib import Path
 
 # Try to import from installed package first, then relative
 try:
+    from green_code_smell.core import warm_up
     from green_code_smell.core import analyze_file
     from green_code_smell.rules.log_excessive import LogExcessiveRule
     from green_code_smell.rules.god_class import GodClassRule
@@ -13,6 +14,7 @@ except ImportError:
     # If running directly, use relative imports
     import os
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+    from src.green_code_smell.core import warm_up
     from src.green_code_smell.core import analyze_file
     from src.green_code_smell.rules.log_excessive import LogExcessiveRule
     from src.green_code_smell.rules.god_class import GodClassRule
@@ -129,7 +131,9 @@ Examples:
     
     try:
         print(f"🔍 Analyzing {args.file}...\n")
-        issues = analyze_file(args.file, rules)
+        warm = warm_up(args.file, rules)
+        print("warm-up completed.\n")
+        issues, avg = analyze_file(args.file, rules)
         
         # Stop carbon tracker
         emissions = None
@@ -160,6 +164,7 @@ Examples:
                     print(f"  Line {issue['lineno']}: {issue['message']}")
             
             print("\n" + "=" * 80)
+<<<<<<< HEAD
         
         # Display carbon emissions with more precision
         if emissions is not None:
@@ -167,6 +172,9 @@ Examples:
             # Convert to more readable units
             mg_co2 = emissions * 1_000_000  # kg to mg
             ug_co2 = emissions * 1_000_000_000  # kg to µg
+=======
+            print("avg computation: {:.2f} iterations".format(avg))
+>>>>>>> main
             
             if emissions >= 0.001:  # >= 1g
                 print(f"   {emissions * 1000:.4f} g CO2")
