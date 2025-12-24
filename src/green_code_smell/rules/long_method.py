@@ -6,10 +6,9 @@ class LongMethodRule:
     description = "Detects methods that are too long based on LOC and cyclomatic complexity."
     severity = "Medium"
     
-    def __init__(self, max_loc=25, max_cyclomatic=10, max_loop=2):
+    def __init__(self, max_loc=30, max_cc=10):
         self.max_loc = max_loc
-        self.max_cyclomatic = max_cyclomatic
-        self.max_loop = max_loop
+        self.max_cc = max_cc
 
     def calculate_cyclomatic_complexity(self, node):
         """
@@ -68,10 +67,8 @@ class LongMethodRule:
                 problems = []
                 if loc > self.max_loc:
                     problems.append(f"LOC: {loc} (max: {self.max_loc})")
-                if cyclomatic > self.max_cyclomatic:
-                    problems.append(f"Cyclomatic Complexity: {cyclomatic} (max: {self.max_cyclomatic})")
-                if loop_count > self.max_loop:
-                    problems.append(f"Loops: {loop_count} (max: 2)")
+                if cyclomatic > self.max_cc:
+                    problems.append(f"Cyclomatic Complexity: {cyclomatic} (max: {self.max_cc})")
                 
                 if problems:
                     issues.append({

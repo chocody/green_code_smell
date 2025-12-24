@@ -6,10 +6,10 @@ class GodClassRule:
     description = "Detects classes that have too many responsibilities (God Class anti-pattern)."
     severity = "High"
     
-    def __init__(self, max_methods=10, max_complexity=35, max_lines=100):
+    def __init__(self, max_methods=10, max_cc=35, max_loc=100):
         self.max_methods = max_methods
-        self.max_complexity = max_complexity
-        self.max_lines = max_lines
+        self.max_cc = max_cc
+        self.max_loc = max_loc
 
     def calculate_complexity(self, node):
         """Calculate cyclomatic complexity for a node (method or class)."""
@@ -57,10 +57,10 @@ class GodClassRule:
                 problems = []
                 if method_count > self.max_methods:
                     problems.append(f"{method_count} methods (max: {self.max_methods})")
-                if total_complexity > self.max_complexity:
-                    problems.append(f"complexity {total_complexity} (max: {self.max_complexity})")
-                if line_count > self.max_lines:
-                    problems.append(f"{line_count} lines (max: {self.max_lines})")
+                if total_complexity > self.max_cc:
+                    problems.append(f"complexity {total_complexity} (max: {self.max_cc})")
+                if line_count > self.max_loc:
+                    problems.append(f"{line_count} lines (max: {self.max_loc})")
                 
                 if problems:
                     issues.append({
