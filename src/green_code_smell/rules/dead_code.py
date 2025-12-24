@@ -64,8 +64,6 @@ class DeadCodeRule:
         return used
     
     def _check_unused(self, defined, used, issues):
-        print("defined", defined)
-        print("used", used)
         """Check for unused variables, functions, and classes."""
         for name, (def_type, lineno) in defined.items():
             # Skip special names (like __init__, __main__)
