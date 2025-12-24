@@ -125,6 +125,24 @@ class Company:
         print(f"Total salaried payout: {total_salary}")
         print(f"Total hourly payout: {total_hourly}")
 
+    def generate_payroll_report_backup(self) -> None:
+        total_salary = 0
+        total_hourly = 0
+
+        for employee in self.employees:
+            for _ in range(2):
+                if isinstance(employee, SalariedEmployee):
+                    total_salary += employee.monthly_salary
+                elif isinstance(employee, HourlyEmployee):
+                    total_hourly += employee.hourly_rate * employee.amount
+        
+        i = 0
+        while i < 3:
+            print("Processing payroll summary...")
+            i += 1
+        
+        print(f"Total salaried payout: {total_salary}")
+        print(f"Total hourly payout: {total_hourly}")
 
     def generate_annual_report(self, year: int) -> None:
         """

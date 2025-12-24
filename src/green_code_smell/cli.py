@@ -45,7 +45,7 @@ def analyze_code_smells(file_path, args):
     if not args.no_god_class:
         rules.append(GodClassRule(
             max_methods=args.max_methods,
-            max_attributes=args.max_attributes,
+            max_complexity=args.max_complexity,
             max_lines=args.max_lines
         ))
     
@@ -168,10 +168,10 @@ def main():
                        help='Disable God Class detection')
     parser.add_argument('--max-methods', type=int, default=10, 
                        help='Max methods for God Class (default: 10)')
-    parser.add_argument('--max-attributes', type=int, default=10, 
-                       help='Max attributes for God Class (default: 10)')
-    parser.add_argument('--max-lines', type=int, default=200, 
-                       help='Max lines for God Class (default: 200)')
+    parser.add_argument('--max-complexity', type=int, default=35, 
+                       help='Max complexity for God Class (default: 35)')
+    parser.add_argument('--max-lines', type=int, default=100, 
+                       help='Max lines for God Class (default: 100)')
     
     #duplicadted code rule
     parser.add_argument('--no-dup-check', action='store_true', 
