@@ -9,6 +9,7 @@ class LongMethodRule:
     def __init__(self, max_loc=25, max_cyclomatic=10, max_loop=2):
         self.max_loc = max_loc
         self.max_cyclomatic = max_cyclomatic
+        self.max_loop = max_loop
 
     def calculate_cyclomatic_complexity(self, node):
         """
@@ -69,7 +70,7 @@ class LongMethodRule:
                     problems.append(f"LOC: {loc} (max: {self.max_loc})")
                 if cyclomatic > self.max_cyclomatic:
                     problems.append(f"Cyclomatic Complexity: {cyclomatic} (max: {self.max_cyclomatic})")
-                if loop_count > 2:
+                if loop_count > self.max_loop:
                     problems.append(f"Loops: {loop_count} (max: 2)")
                 
                 if problems:

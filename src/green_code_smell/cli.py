@@ -50,10 +50,7 @@ def analyze_code_smells(file_path, args):
         ))
     
     if not args.no_dup_check:
-        rules.append(DuplicatedCodeRule(
-            min_lines=args.dup_min_lines,
-            min_occurrences=args.dup_min_occurrences
-        ))
+        rules.append(DuplicatedCodeRule())
     
     if not args.no_long_method:
         rules.append(LongMethodRule(
@@ -151,7 +148,6 @@ def main():
     %(prog)s myfile.py
     %(prog)s myfile.py --no-log-check
     %(prog)s myfile.py --max-methods 5
-    %(prog)s myfile.py --dup-min-lines 3
     %(prog)s myfile.py --max-loc 30 --max-cyclomatic 3
     %(prog)s myfile.py --no-carbon  # Disable carbon tracking
         """
@@ -176,10 +172,6 @@ def main():
     #duplicadted code rule
     parser.add_argument('--no-dup-check', action='store_true', 
                        help='Disable duplicated code detection')
-    parser.add_argument('--dup-min-lines', type=int, default=5, 
-                       help='Min lines for duplicated code (default: 5)')
-    parser.add_argument('--dup-min-occurrences', type=int, default=2, 
-                       help='Min occurrences for duplicated code (default: 2)')
     
     #long method rule
     parser.add_argument('--no-long-method', action='store_true', 
