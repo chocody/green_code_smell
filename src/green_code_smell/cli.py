@@ -39,27 +39,27 @@ def analyze_code_smells(file_path, args):
     #setup rule
     rules = []
     
-    # if not args.no_log_check:
-    #     rules.append(LogExcessiveRule())
+    if not args.no_log_check:
+        rules.append(LogExcessiveRule())
     
-    # if not args.no_god_class:
-    #     rules.append(GodClassRule(
-    #         max_methods=args.max_methods,
-    #         max_attributes=args.max_attributes,
-    #         max_lines=args.max_lines
-    #     ))
+    if not args.no_god_class:
+        rules.append(GodClassRule(
+            max_methods=args.max_methods,
+            max_attributes=args.max_attributes,
+            max_lines=args.max_lines
+        ))
     
-    # if not args.no_dup_check:
-    #     rules.append(DuplicatedCodeRule(
-    #         min_lines=args.dup_min_lines,
-    #         min_occurrences=args.dup_min_occurrences
-    #     ))
+    if not args.no_dup_check:
+        rules.append(DuplicatedCodeRule(
+            min_lines=args.dup_min_lines,
+            min_occurrences=args.dup_min_occurrences
+        ))
     
-    # if not args.no_long_method:
-    #     rules.append(LongMethodRule(
-    #         max_loc=args.max_loc,
-    #         max_cyclomatic=args.max_cyclomatic
-    #     ))
+    if not args.no_long_method:
+        rules.append(LongMethodRule(
+            max_loc=args.max_loc,
+            max_cyclomatic=args.max_cyclomatic
+        ))
     
     if not args.no_dead_code:
         rules.append(DeadCodeRule())
