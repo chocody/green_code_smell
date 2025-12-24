@@ -45,16 +45,18 @@ def analyze_code_smells(file_path, args):
     if not args.no_god_class:
         rules.append(GodClassRule(
             max_methods=args.max_methods,
-            max_complexity=args.max_complexity,
-            max_lines=args.max_lines
+            max_cc=args.max_cc,
+            max_loc=args.max_loc
         ))
     
     if not args.no_dup_check:
-        rules.append(DuplicatedCodeRule())
+        rules.append(DuplicatedCodeRule(
+            similarity_threshold=args.dup_similarity
+        ))
     
     if not args.no_long_method:
         rules.append(LongMethodRule(
-            max_loc=args.max_loc,
+            max_loc=args.method_max_loc,
             max_cyclomatic=args.max_cyclomatic
         ))
     
@@ -136,7 +138,7 @@ def carbon_track(file_path, args):
     # Calculate average emissions
     print("\n" + "=" * 80)
     print("Carbon track history each loops: ", avg_emissions)
-    print(f"\n 🌿 Estimated carbon emissions for analyzing ({emissions:.6e} kg CO2)")
+    print(f"\n🌿 Estimated carbon emissions for analyzing ({emissions:.6e} kg CO2)")
     print("\n" + "=" * 80)
 
 def main():
@@ -148,7 +150,8 @@ def main():
     %(prog)s myfile.py
     %(prog)s myfile.py --no-log-check
     %(prog)s myfile.py --max-methods 5
-    %(prog)s myfile.py --max-loc 30 --max-cyclomatic 3
+    %(prog)s myfile.py --dup-similarity 0.80
+    %(prog)s myfile.py --method-max-loc 30 --max-cyclomatic 3
     %(prog)s myfile.py --no-carbon  # Disable carbon tracking
         """
     )
@@ -164,24 +167,24 @@ def main():
                        help='Disable God Class detection')
     parser.add_argument('--max-methods', type=int, default=10, 
                        help='Max methods for God Class (default: 10)')
-    parser.add_argument('--max-complexity', type=int, default=35, 
-                       help='Max complexity for God Class (default: 35)')
-    parser.add_argument('--max-lines', type=int, default=100, 
-                       help='Max lines for God Class (default: 100)')
+    parser.add_argument('--max-cc', type=int, default=35, 
+                       help='Max cyclomatic complexity for God Class (default: 35)')
+    parser.add_argument('--max-loc', type=int, default=100, 
+                       help='Max lines of code for God Class (default: 100)')
     
     #duplicadted code rule
     parser.add_argument('--no-dup-check', action='store_true', 
                        help='Disable duplicated code detection')
+    parser.add_argument('--dup-similarity', type=float, default=0.85, 
+                       help='Similarity threshold for duplicated code (0.0-1.0, default: 0.85)')
     
     #long method rule
     parser.add_argument('--no-long-method', action='store_true', 
                        help='Disable Long Method detection')
-    parser.add_argument('--max-loc', type=int, default=25, 
+    parser.add_argument('--method-max-loc', type=int, default=25, 
                        help='Max lines of code for method (default: 25)')
     parser.add_argument('--max-cyclomatic', type=int, default=10, 
-                       help='Max cyclomatic complexity (default: 10)')
-    parser.add_argument('--max-loop', type=int, default=2, 
-                       help='Max loop (default: 2)')
+                       help='Max cyclomatic complexity for method (default: 10)')
     
     #dead code rule
     parser.add_argument('--no-dead-code', action='store_true', 
