@@ -6,10 +6,33 @@ class GodClassRule:
     description = "Detects classes that have too many responsibilities (God Class anti-pattern)."
     severity = "High"
     
-    def __init__(self, max_methods=10, max_attributes=10, max_lines=200):
+    def __init__(self, max_methods=10, max_complexity=35, max_lines=100):
         self.max_methods = max_methods
-        self.max_attributes = max_attributes
+        self.max_complexity = max_complexity
         self.max_lines = max_lines
+
+    def calculate_complexity(self, node):
+        """Calculate cyclomatic complexity for a node (method or class)."""
+        complexity = 1  # Base complexity
+        
+        for child in ast.walk(node):
+            # Add 1 for each decision point
+            if isinstance(child, (ast.If, ast.While, ast.For, ast.AsyncFor)):
+                complexity += 1
+            elif isinstance(child, ast.ExceptHandler):
+                complexity += 1
+            elif isinstance(child, (ast.With, ast.AsyncWith)):
+                complexity += 1
+            elif isinstance(child, ast.Assert):
+                complexity += 1
+            elif isinstance(child, ast.BoolOp):
+                # Add for each additional condition in boolean operations
+                complexity += len(child.values) - 1
+            elif isinstance(child, ast.comprehension):
+                # List/dict/set comprehensions with conditions
+                complexity += len(child.ifs)
+        
+        return complexity
 
     def check(self, tree):
         issues = []
@@ -19,28 +42,10 @@ class GodClassRule:
                 methods = [n for n in node.body if isinstance(n, ast.FunctionDef)]
                 method_count = len(methods)
                 
-                # Count attributes (assignments in __init__ or class level)
-                attributes = set()
-                for item in node.body:
-                    # Class-level attributes
-                    if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
-                        attributes.add(item.target.id)
-                    elif isinstance(item, ast.Assign):
-                        for target in item.targets:
-                            if isinstance(target, ast.Name):
-                                attributes.add(target.id)
-                    
-                    # Instance attributes in __init__
-                    if isinstance(item, ast.FunctionDef) and item.name == '__init__':
-                        for n in ast.walk(item):
-                            if isinstance(n, ast.Assign):
-                                for target in n.targets:
-                                    if isinstance(target, ast.Attribute) and \
-                                       isinstance(target.value, ast.Name) and \
-                                       target.value.id == 'self':
-                                        attributes.add(target.attr)
-                
-                attribute_count = len(attributes)
+                # Calculate total cyclomatic complexity for the class
+                total_complexity = 0
+                for method in methods:
+                    total_complexity += self.calculate_complexity(method)
                 
                 # Count lines in class
                 if hasattr(node, 'end_lineno') and hasattr(node, 'lineno'):
@@ -52,8 +57,8 @@ class GodClassRule:
                 problems = []
                 if method_count > self.max_methods:
                     problems.append(f"{method_count} methods (max: {self.max_methods})")
-                if attribute_count > self.max_attributes:
-                    problems.append(f"{attribute_count} attributes (max: {self.max_attributes})")
+                if total_complexity > self.max_complexity:
+                    problems.append(f"complexity {total_complexity} (max: {self.max_complexity})")
                 if line_count > self.max_lines:
                     problems.append(f"{line_count} lines (max: {self.max_lines})")
                 
