@@ -9,6 +9,7 @@ try:
     from green_code_smell.rules.god_class import GodClassRule
     from green_code_smell.rules.duplicated_code import DuplicatedCodeRule
     from green_code_smell.rules.long_method import LongMethodRule
+    from green_code_smell.rules.dead_code import DeadCodeRule
 except ImportError:
     # If running directly, use relative imports
     import os
@@ -18,6 +19,7 @@ except ImportError:
     from src.green_code_smell.rules.god_class import GodClassRule
     from src.green_code_smell.rules.duplicated_code import DuplicatedCodeRule
     from src.green_code_smell.rules.long_method import LongMethodRule
+    from src.green_code_smell.rules.dead_code import DeadCodeRule
 
 # Import CodeCarbon
 try:
@@ -59,6 +61,9 @@ def analyze_code_smells(file_path, args):
             max_cyclomatic=args.max_cyclomatic
         ))
     
+    if not args.no_dead_code:
+        rules.append(DeadCodeRule())
+
     if not rules:
         print("⚠️  Warning: No rules enabled!")
         sys.exit(0)
@@ -98,7 +103,7 @@ def carbon_track(file_path, args):
     
     # Initialize carbon tracker
     avg_emissions = []
-    for i in range(31): # rules for 30 runs
+    for i in range(5): # rules for 30 runs
         tracker = None
         if CODECARBON_AVAILABLE and not args.no_carbon:
             try:
@@ -185,6 +190,10 @@ def main():
                        help='Max cyclomatic complexity (default: 10)')
     parser.add_argument('--max-loop', type=int, default=2, 
                        help='Max loop (default: 2)')
+    
+    #dead code rule
+    parser.add_argument('--no-dead-code', action='store_true', 
+                       help='Disable Dead Code detection')
     
     #carbon tracking
     parser.add_argument('--no-carbon', action='store_true', 
