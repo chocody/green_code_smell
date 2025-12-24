@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import List
 
 FIXED_VACATION_DAYS_PAYOUT = 5  # The fixed nr of vacation days that can be paid out.
-
+HI = 1
 
 @dataclass
 class Employee:
@@ -80,6 +80,8 @@ class Company:
             if employee.role == "vice_president":
                 vice_presidents.append(employee)
         return vice_presidents
+    
+        print("find vice_presidents after return")
 
     def find_interns(self) -> List[Employee]:
         """Find all interns."""
@@ -87,6 +89,9 @@ class Company:
         for employee in self.employees:
             if employee.role == "intern":
                 interns.append(employee)
+            else:
+                return []
+                print("find intern before return")
         return interns
 
     def pay_employee(self, employee: Employee) -> None:
@@ -120,6 +125,24 @@ class Company:
         print(f"Total salaried payout: {total_salary}")
         print(f"Total hourly payout: {total_hourly}")
 
+    def generate_payroll_report_backup(self) -> None:
+        total_salary = 0
+        total_hourly = 0
+
+        for employee in self.employees:
+            for _ in range(2):
+                if isinstance(employee, SalariedEmployee):
+                    total_salary += employee.monthly_salary
+                elif isinstance(employee, HourlyEmployee):
+                    total_hourly += employee.hourly_rate * employee.amount
+        
+        i = 0
+        while i < 3:
+            print("Processing payroll summary...")
+            i += 1
+        
+        print(f"Total salaried payout: {total_salary}")
+        print(f"Total hourly payout: {total_hourly}")
 
     def generate_annual_report(self, year: int) -> None:
         """
