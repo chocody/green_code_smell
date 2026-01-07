@@ -51,13 +51,16 @@ def analyze_code_smells(file_path, args):
     
     if not args.no_dup_check:
         rules.append(DuplicatedCodeRule(
-            similarity_threshold=args.dup_similarity
+            similarity_threshold=args.dup_similarity,
+            min_statements=args.dup_min_statements,
+            check_within_functions=args.dup_check_within,
+            check_between_functions=args.dup_check_between
         ))
     
     if not args.no_long_method:
         rules.append(LongMethodRule(
             max_loc=args.method_max_loc,
-            max_cyclomatic=args.max_cyclomatic
+            max_cc=args.max_cyclomatic
         ))
     
     if not args.no_dead_code:
@@ -102,7 +105,7 @@ def carbon_track(file_path, args):
     
     # Initialize carbon tracker
     avg_emissions = []
-    for i in range(5): # rules for 30 runs
+    for i in range(5): # rules for 5 runs
         tracker = None
         if CODECARBON_AVAILABLE and not args.no_carbon:
             try:
@@ -129,30 +132,41 @@ def carbon_track(file_path, args):
             avg_emissions.append(emissions)
             
         except Exception as e:
-            tracker.stop()
+            if tracker:
+                tracker.stop()
             print(f"❌ Error analyzing file: {e}")
             import traceback
             traceback.print_exc()
             sys.exit(1)
 
     # Calculate average emissions
-    print("\n" + "=" * 80)
-    print("Carbon track history each loops: ", avg_emissions)
-    print(f"\n🌿 Estimated carbon emissions for analyzing ({emissions:.6e} kg CO2)")
-    print("\n" + "=" * 80)
+    if avg_emissions and any(e is not None for e in avg_emissions):
+        print("\n" + "=" * 80)
+        print("Carbon track history each loop: ", avg_emissions)
+        valid_emissions = [e for e in avg_emissions if e is not None]
+        if valid_emissions:
+            avg = sum(valid_emissions) / len(valid_emissions)
+            print(f"\n🌿 Average carbon emissions: {avg:.6e} kg CO2")
+        print("\n" + "=" * 80)
 
 def main():
     parser = argparse.ArgumentParser(
         description='Check Python file for green code smells.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-    Examples:
-    %(prog)s myfile.py
-    %(prog)s myfile.py --no-log-check
-    %(prog)s myfile.py --max-methods 5
-    %(prog)s myfile.py --dup-similarity 0.80
-    %(prog)s myfile.py --method-max-loc 30 --max-cyclomatic 3
-    %(prog)s myfile.py --no-carbon  # Disable carbon tracking
+Examples:
+  %(prog)s myfile.py
+  %(prog)s myfile.py --no-log-check
+  %(prog)s myfile.py --max-methods 5
+  
+  # Duplicated code detection options
+  %(prog)s myfile.py --dup-similarity 0.80
+  %(prog)s myfile.py --dup-min-statements 5
+  %(prog)s myfile.py --dup-check-within-only    # Check only within functions
+  %(prog)s myfile.py --dup-check-between-only   # Check only between functions
+  
+  %(prog)s myfile.py --method-max-loc 30 --max-cyclomatic 3
+  %(prog)s myfile.py --no-carbon  # Disable carbon tracking
         """
     )
     
@@ -172,11 +186,17 @@ def main():
     parser.add_argument('--max-loc', type=int, default=100, 
                        help='Max lines of code for God Class (default: 100)')
     
-    #duplicadted code rule
+    #duplicated code rule
     parser.add_argument('--no-dup-check', action='store_true', 
                        help='Disable duplicated code detection')
     parser.add_argument('--dup-similarity', type=float, default=0.85, 
                        help='Similarity threshold for duplicated code (0.0-1.0, default: 0.85)')
+    parser.add_argument('--dup-min-statements', type=int, default=3,
+                       help='Minimum statements in code block to check for duplication (default: 3)')
+    parser.add_argument('--dup-check-within-only', action='store_true',
+                       help='Check duplicated code only within functions (not between functions)')
+    parser.add_argument('--dup-check-between-only', action='store_true',
+                       help='Check duplicated code only between functions (not within functions)')
     
     #long method rule
     parser.add_argument('--no-long-method', action='store_true', 
@@ -195,6 +215,21 @@ def main():
                        help='Disable carbon emissions tracking')
     
     args = parser.parse_args()
+    
+    # Handle duplicated code check options
+    if args.dup_check_within_only and args.dup_check_between_only:
+        print("❌ Error: Cannot use both --dup-check-within-only and --dup-check-between-only")
+        sys.exit(1)
+    
+    if args.dup_check_within_only:
+        args.dup_check_within = True
+        args.dup_check_between = False
+    elif args.dup_check_between_only:
+        args.dup_check_within = False
+        args.dup_check_between = True
+    else:
+        args.dup_check_within = True
+        args.dup_check_between = True
 
     analyze_code_smells(args.file, args)
     carbon_track(args.file, args)
