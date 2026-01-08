@@ -144,7 +144,7 @@ class Company:
         print(f"Total salaried payout: {total_salary}")
         print(f"Total hourly payout: {total_hourly}")
 
-    def generate_annual_report(self, year: int) -> None:
+    def generate_annual_report(self, year: int, list=[]) -> None:
         """
         Generate an annual report for the company.
         This method is intentionally long and complex
