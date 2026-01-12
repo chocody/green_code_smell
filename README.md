@@ -1,4 +1,4 @@
-# Green Code Smell
+# PyGreenSense
 
 A Python code analysis tool that detects various code smells and quality issues in your codebase. It helps you write cleaner, more maintainable code by identifying problematic patterns.
 
@@ -10,33 +10,40 @@ A Python code analysis tool that detects various code smells and quality issues 
 - **Long Method Detection** - Detects methods that exceed size/complexity thresholds
 - **Dead Code Detection** - Identifies unused variables and functions
 - **Mutable Default Arguments** - Warns about mutable default arguments in functions
+- **Carbon Emissions Tracking** - Tracks the carbon footprint of your analysis (optional)
 
 ## Installation
 
 ```bash
-pip install green-code-smell
+pip install pygreenense
 ```
 
 ## Quick Start
 
+## If some dependency not install. You can install it following this command
+
+```bash
+pip install codecarbon
+```
+
 ### Run analysis on current project (from root directory)
 
 ```bash
-green-code-smell run
+pygreensense run
 ```
 
 ### Run analysis on specific directory
 
 ```bash
-green-code-smell ./src
-green-code-smell ./my_project
+pygreensense ./src
+pygreensense ./my_project
 ```
 
 ### Run analysis on single file
 
 ```bash
-green-code-smell myfile.py
-green-code-smell ./src/utils.py
+pygreensense myfile.py
+pygreensense ./src/utils.py
 ```
 
 ## Usage with Rule Parameters
@@ -45,24 +52,24 @@ green-code-smell ./src/utils.py
 
 Disable excessive logging detection:
 ```bash
-green-code-smell run --no-log-check
+pygreensense run --no-log-check
 ```
 
 Disable God Class detection:
 ```bash
-green-code-smell . --no-god-class
+pygreensense . --no-god-class
 ```
 
 Disable duplicated code detection:
 ```bash
-green-code-smell . --no-dup-check
+pygreensense . --no-dup-check
 ```
 
 ### God Class Parameters
 
 Customize God Class thresholds:
 ```bash
-green-code-smell run --max-methods 8 --max-cc 30 --max-loc 150
+pygreensense run --max-methods 8 --max-cc 30 --max-loc 150
 ```
 
 - `--max-methods` - Maximum allowed methods in a class (default: 10)
@@ -73,7 +80,7 @@ green-code-smell run --max-methods 8 --max-cc 30 --max-loc 150
 
 Fine-tune duplicate detection:
 ```bash
-green-code-smell . --dup-similarity 0.80 --dup-min-statements 5
+pygreensense . --dup-similarity 0.80 --dup-min-statements 5
 ```
 
 - `--dup-similarity` - Similarity threshold 0.0-1.0 (default: 0.85)
@@ -83,7 +90,7 @@ green-code-smell . --dup-similarity 0.80 --dup-min-statements 5
 
 Control method length detection:
 ```bash
-green-code-smell run --method-max-loc 30 --max-cyclomatic 3
+pygreensense run --method-max-loc 30 --max-cyclomatic 3
 ```
 
 - `--method-max-loc` - Maximum lines of code for method (default: 25)
@@ -94,30 +101,30 @@ green-code-smell run --method-max-loc 30 --max-cyclomatic 3
 ### Disable carbon tracking
 
 ```bash
-green-code-smell run --no-carbon
+pygreensense run --no-carbon
 ```
 
 ### Combine multiple options
 
 ```bash
-green-code-smell ./src --no-log-check --max-methods 8 --dup-similarity 0.80
+pygreensense ./src --no-log-check --max-methods 8 --dup-similarity 0.80
 ```
 
 ## Examples
 
 Analyze entire project with strict rules:
 ```bash
-green-code-smell run --max-methods 5 --method-max-loc 20
+pygreensense run --max-methods 5 --method-max-loc 20
 ```
 
 Analyze specific directory, skip logging checks:
 ```bash
-green-code-smell ./app --no-log-check
+pygreensense ./app --no-log-check
 ```
 
 Analyze with custom duplicated code detection:
 ```bash
-green-code-smell . --dup-similarity 0.90 --dup-min-statements 10
+pygreensense . --dup-similarity 0.90 --dup-min-statements 10
 ```
 
 ## Output
