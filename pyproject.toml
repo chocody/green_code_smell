@@ -17,6 +17,9 @@ classifiers = [
 ]
 license = "MIT"
 license-files = ["LICEN[CS]E*"]
+dependencies = [
+    "codecarbon>=1.25.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/chocody/green_code_smell"
