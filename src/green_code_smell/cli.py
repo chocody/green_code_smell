@@ -252,9 +252,12 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+<<<<<<< HEAD
   # Run analysis on current project (from root)
   %(prog)s run
   
+=======
+>>>>>>> origin
   # Analyze single file
   %(prog)s myfile.py
   
