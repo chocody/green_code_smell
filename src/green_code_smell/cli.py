@@ -10,6 +10,7 @@ try:
     from green_code_smell.rules.duplicated_code import DuplicatedCodeRule
     from green_code_smell.rules.long_method import LongMethodRule
     from green_code_smell.rules.dead_code import DeadCodeRule
+    from green_code_smell.rules.mutable_default_arguments import MutableDefaultArgumentsRule
 except ImportError:
     # If running directly, use relative imports
     import os
@@ -20,6 +21,7 @@ except ImportError:
     from src.green_code_smell.rules.duplicated_code import DuplicatedCodeRule
     from src.green_code_smell.rules.long_method import LongMethodRule
     from src.green_code_smell.rules.dead_code import DeadCodeRule
+    from src.green_code_smell.rules.mutable_default_arguments import MutableDefaultArgumentsRule
 
 # Import CodeCarbon
 try:
@@ -85,6 +87,9 @@ def setup_rules(args):
     
     if not args.no_dead_code:
         rules.append(DeadCodeRule())
+
+    if not args.no_mutable_default:
+        rules.append(MutableDefaultArgumentsRule())
 
     if not rules:
         print("⚠️  Warning: No rules enabled!")
