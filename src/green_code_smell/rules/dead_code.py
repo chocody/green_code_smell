@@ -1,4 +1,5 @@
 import ast
+from pathlib import Path
 
 class DeadCodeRule:
     id = "GCS005"
@@ -6,21 +7,80 @@ class DeadCodeRule:
     description = "Detects unreachable code and unused definitions."
     severity = "Medium"
     
-    def __init__(self):
-        pass
-
-    def check(self, tree):
+    def __init__(self, project_root=None):
+        self.project_root = project_root
+        self.all_definitions = {}  # {file_path: {name: (type, lineno)}}
+        self.all_usages = {}       # {file_path: set of names}
+        self.all_imports = {}      # {file_path: set of imported names}
+        self.is_project_mode = False
+    
+    def check(self, tree, file_path=None):
+        """Check single file"""
         issues = []
         
         # Check for unused definitions
         defined = self._collect_definitions(tree)
         used = self._collect_usage(tree)
-        self._check_unused(defined, used, issues)
+        imports = self._collect_imports(tree)
+        
+        # In single-file mode, don't flag imported items as unused
+        self._check_unused(defined, used, imports, issues)
         
         # Check for unreachable code
         self._check_unreachable(tree, issues)
         
         return issues
+    
+    def check_project(self):
+        """Analyze entire project for unused definitions across files"""
+        self.is_project_mode = True
+        all_issues = []
+        
+        # Step 1: Collect all definitions and usages from all Python files
+        py_files = list(Path(self.project_root).rglob("*.py"))
+        
+        if not py_files:
+            return all_issues
+        
+        for py_file in py_files:
+            try:
+                with open(py_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    tree = ast.parse(content)
+                    
+                file_str = str(py_file)
+                self.all_definitions[file_str] = self._collect_definitions(tree)
+                self.all_usages[file_str] = self._collect_usage(tree)
+                self.all_imports[file_str] = self._collect_imports(tree)
+            except Exception:
+                # Skip files that can't be parsed
+                continue
+        
+        # Step 2: Check for unused definitions across files
+        for file_path, definitions in self.all_definitions.items():
+            for name, (def_type, lineno) in definitions.items():
+                # Skip special names
+                if name.startswith('_'):
+                    continue
+                
+                # Check if used anywhere in the project
+                if not self._is_used_anywhere(name, file_path):
+                    all_issues.append({
+                        "rule": self.name,
+                        "lineno": lineno,
+                        "message": f"Unused {def_type} '{name}' is never referenced. Suggest removing it."
+                    })
+        
+        # Step 3: Check for unreachable code in all files
+        for py_file in py_files:
+            try:
+                with open(py_file, 'r', encoding='utf-8') as f:
+                    tree = ast.parse(f.read())
+                    self._check_unreachable(tree, all_issues)
+            except Exception:
+                continue
+        
+        return all_issues
     
     def _collect_definitions(self, tree):
         """Collect all function, class, and variable definitions."""
@@ -52,22 +112,61 @@ class DeadCodeRule:
             if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
                 used.add(node.id)
             
-            # Attribute access (obj.method)
+            # Attribute access (obj.method or obj.attr)
             elif isinstance(node, ast.Attribute):
                 used.add(node.attr)
 
-            # Function calls
+            # Function/method calls
             elif isinstance(node, ast.Call):
                 if isinstance(node.func, ast.Name):
                     used.add(node.func.id)
+                elif isinstance(node.func, ast.Attribute):
+                    # Handle obj.method() calls
+                    used.add(node.func.attr)
         
         return used
     
-    def _check_unused(self, defined, used, issues):
+    def _collect_imports(self, tree):
+        """Collect all imported names."""
+        imports = set()
+        
+        for node in ast.walk(tree):
+            # from X import Y
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    # Use alias name if provided, otherwise use actual name
+                    imports.add(alias.asname if alias.asname else alias.name)
+            
+            # import X
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    imports.add(alias.asname if alias.asname else alias.name)
+        
+        return imports
+    
+    def _is_used_anywhere(self, name, file_path):
+        """Check if name is used anywhere in the project"""
+        # Check if used in any file's usages
+        for file_usages in self.all_usages.values():
+            if name in file_usages:
+                return True
+        
+        # Check if imported in any file (exported for use)
+        for file_imports in self.all_imports.values():
+            if name in file_imports:
+                return True
+        
+        return False
+    
+    def _check_unused(self, defined, used, imports, issues):
         """Check for unused variables, functions, and classes."""
         for name, (def_type, lineno) in defined.items():
             # Skip special names (like __init__, __main__)
             if name.startswith('_'):
+                continue
+            
+            # Skip if it's imported (might be re-exported)
+            if name in imports:
                 continue
             
             # Check if used
