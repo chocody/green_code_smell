@@ -314,6 +314,10 @@ Examples:
     parser.add_argument('--no-dead-code', action='store_true', 
                        help='Disable Dead Code detection')
     
+    #mutable default arguments rule
+    parser.add_argument('--no-mutable-default', action='store_true',
+                       help='Disable Mutable Default Arguments detection')
+    
     # Carbon tracking
     parser.add_argument('--no-carbon', action='store_true', 
                        help='Disable carbon emissions tracking')
