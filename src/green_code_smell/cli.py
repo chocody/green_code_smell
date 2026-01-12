@@ -32,13 +32,33 @@ except ImportError:
     print("⚠️  Warning: codecarbon not installed. Carbon tracking disabled.")
     print("   Install with: pip install codecarbon\n")
 
-def analyze_code_smells(file_path, args):
-    #check if file exist
-    if not Path(file_path).exists():
-        print(f"❌ Error: File '{file_path}' not found!")
+def get_python_files(path):
+    """Get all Python files from path (file or directory)"""
+    path = Path(path)
+    
+    if path.is_file():
+        if path.suffix == '.py':
+            return [path]
+        else:
+            print(f"❌ Error: '{path}' is not a Python file!")
+            sys.exit(1)
+    elif path.is_dir():
+        # Find all .py files recursively, excluding common directories
+        exclude_dirs = {'venv', '.venv', 'env', '__pycache__', '.git', 'node_modules', '.pytest_cache', '.tox'}
+        python_files = []
+        
+        for py_file in path.rglob('*.py'):
+            # Check if any parent directory is in exclude list
+            if not any(parent.name in exclude_dirs for parent in py_file.parents):
+                python_files.append(py_file)
+        
+        return sorted(python_files)
+    else:
+        print(f"❌ Error: Path '{path}' not found!")
         sys.exit(1)
 
-    #setup rule
+def setup_rules(args):
+    """Setup analysis rules based on arguments"""
     rules = []
     
     if not args.no_log_check:
@@ -75,57 +95,127 @@ def analyze_code_smells(file_path, args):
         print("⚠️  Warning: No rules enabled!")
         sys.exit(0)
     
-    issues = analyze_file(args.file, rules)
+    return rules
 
-    display_code_smell_info(issues, args)
+def analyze_code_smells(path, args):
+    """Analyze code smells in file or project"""
+    python_files = get_python_files(path)
+    
+    if not python_files:
+        print(f"⚠️  No Python files found in '{path}'")
+        sys.exit(0)
+    
+    print(f"🔍 Analyzing {len(python_files)} Python file(s)...\n")
+    
+    rules = setup_rules(args)
+    
+    # Analyze all files
+    all_results = {}
+    total_issues = 0
+    
+    for py_file in python_files:
+        try:
+            issues = analyze_file(str(py_file), rules)
+            if issues:
+                all_results[py_file] = issues
+                total_issues += len(issues)
+        except Exception as e:
+            print(f"⚠️  Warning: Could not analyze {py_file}: {e}")
+    
+    display_results(all_results, total_issues, python_files, args)
+    
+    return all_results
 
-def display_code_smell_info(issues, args):
-    if not issues:
-        print(f"✅ No issues found in {args.file}!")
-    else:
-        print(f"⚠️  Found {len(issues)} issue(s) in {args.file}:")
-        print("=" * 80)
-            
-        #group by rule
+def display_results(all_results, total_issues, all_files, args):
+    """Display analysis results"""
+    if not all_results:
+        print(f"✅ No issues found in {len(all_files)} file(s)!")
+        return
+    
+    print("=" * 80)
+    print(f"⚠️  Found {total_issues} issue(s) in {len(all_results)} file(s):")
+    print("=" * 80)
+    
+    # Sort files by number of issues (descending)
+    sorted_files = sorted(all_results.items(), key=lambda x: len(x[1]), reverse=True)
+    
+    for file_path, issues in sorted_files:
+        # Show relative path if possible
+        try:
+            display_path = file_path.relative_to(Path.cwd())
+        except ValueError:
+            display_path = file_path
+        
+        print(f"\n📄 {display_path} ({len(issues)} issue(s))")
+        print("-" * 80)
+        
+        # Group issues by rule
         by_rule = {}
         for issue in issues:
             rule = issue['rule']
             if rule not in by_rule:
                 by_rule[rule] = []
             by_rule[rule].append(issue)
-            
-        for rule_name, rule_issues in by_rule.items():
-            print(f"\n{rule_name} ({len(rule_issues)} issue(s)):")
-            print("-" * 80)
+        
+        # Display issues grouped by rule
+        for rule_name, rule_issues in sorted(by_rule.items()):
+            print(f"\n  {rule_name} ({len(rule_issues)} issue(s)):")
             for issue in rule_issues:
-                print(f"  Line {issue['lineno']}: {issue['message']}")
-            
-        print("\n" + "=" * 80 + "\n")
+                print(f"    Line {issue['lineno']}: {issue['message']}")
+    
+    # Summary by rule type
+    print("\n" + "=" * 80)
+    print("📊 Summary by Rule:")
+    print("-" * 80)
+    
+    rule_summary = {}
+    for issues in all_results.values():
+        for issue in issues:
+            rule = issue['rule']
+            rule_summary[rule] = rule_summary.get(rule, 0) + 1
+    
+    for rule_name, count in sorted(rule_summary.items(), key=lambda x: x[1], reverse=True):
+        print(f"  {rule_name}: {count} issue(s)")
+    
+    print("=" * 80 + "\n")
 
-def carbon_track(file_path, args):
-    #check if file exist
-    if not Path(file_path).exists():
-        print(f"❌ Error: File '{file_path}' not found!")
-        sys.exit(1)
+def carbon_track(path, args):
+    """Track carbon emissions for the analysis"""
+    python_files = get_python_files(path)
+    
+    if not python_files:
+        return
     
     # Initialize carbon tracker
     avg_emissions = []
-    for i in range(5): # rules for 5 runs
+    rules = setup_rules(args)
+    
+    for i in range(5):  # Run 5 times for averaging
         tracker = None
         if CODECARBON_AVAILABLE and not args.no_carbon:
             try:
                 tracker = EmissionsTracker(
-                    log_level="error",  # Only show errors
-                    save_to_file=False,  # Don't save to file
-                    save_to_api=False,   # Don't send to API
+                    log_level="error",
+                    save_to_file=False,
+                    save_to_api=False,
                 )
                 tracker.start()
             except Exception as e:
                 print(f"⚠️  Warning: Could not start carbon tracking: {e}\n")
                 tracker = None
                 break
-
-        # Stop carbon tracker   
+        
+        # Perform analysis
+        try:
+            for py_file in python_files:
+                try:
+                    analyze_file(str(py_file), rules)
+                except:
+                    pass  # Ignore errors during carbon tracking
+        except:
+            pass
+        
+        # Stop tracker and record emissions
         try:
             emissions = None
             if tracker:
@@ -135,53 +225,62 @@ def carbon_track(file_path, args):
                     print(f"⚠️  Warning: Could not stop carbon tracking: {e}")
                     break
             avg_emissions.append(emissions)
-            
         except Exception as e:
             if tracker:
                 tracker.stop()
-            print(f"❌ Error analyzing file: {e}")
-            import traceback
-            traceback.print_exc()
-            sys.exit(1)
-
-    # Calculate average emissions
+            break
+    
+    # Calculate and display average emissions
     if avg_emissions and any(e is not None for e in avg_emissions):
+        formatted_emissions = [f"{e:.6e}" for e in avg_emissions if e is not None]
         print("\n" + "=" * 80)
-        print("Carbon track history each loop: ", avg_emissions)
+        print("🌱 Carbon Emissions Tracking:")
+        print("-" * 80)
+        print(f"Files analyzed: {len(python_files)}")
+        print(f"Runs completed: {len([e for e in avg_emissions if e is not None])}")
+        print("Carbon track history each loop:", formatted_emissions)
+        
         valid_emissions = [e for e in avg_emissions if e is not None]
         if valid_emissions:
             avg = sum(valid_emissions) / len(valid_emissions)
-            print(f"\n🌿 Average carbon emissions: {avg:.6e} kg CO2")
-        print("\n" + "=" * 80)
+            print(f"Average carbon emissions: {avg:.6e} kg CO2")
+        print("=" * 80)
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Check Python file for green code smells.',
+        description='Check Python file or project for green code smells.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Analyze single file
   %(prog)s myfile.py
-  %(prog)s myfile.py --no-log-check
-  %(prog)s myfile.py --max-methods 5
+  
+  # Analyze entire project
+  %(prog)s ./my_project
+  %(prog)s .
+  
+  # With custom options
+  %(prog)s ./src --no-log-check
+  %(prog)s . --max-methods 5
   
   # Duplicated code detection options
-  %(prog)s myfile.py --dup-similarity 0.80
-  %(prog)s myfile.py --dup-min-statements 5
-  %(prog)s myfile.py --dup-check-within-only    # Check only within functions
-  %(prog)s myfile.py --dup-check-between-only   # Check only between functions
+  %(prog)s . --dup-similarity 0.80
+  %(prog)s . --dup-min-statements 5
+  %(prog)s . --dup-check-within-only    # Check only within functions
+  %(prog)s . --dup-check-between-only   # Check only between functions
   
-  %(prog)s myfile.py --method-max-loc 30 --max-cyclomatic 3
-  %(prog)s myfile.py --no-carbon  # Disable carbon tracking
+  %(prog)s . --method-max-loc 30 --max-cyclomatic 3
+  %(prog)s . --no-carbon  # Disable carbon tracking
         """
     )
     
-    parser.add_argument('file', help='Path to Python file to check')
+    parser.add_argument('path', help='Path to Python file or project directory to check')
     
-    #excessive log rule
+    # Excessive log rule
     parser.add_argument('--no-log-check', action='store_true', 
                        help='Disable excessive logging detection')
     
-    #god class rule
+    # God class rule
     parser.add_argument('--no-god-class', action='store_true', 
                        help='Disable God Class detection')
     parser.add_argument('--max-methods', type=int, default=10, 
@@ -191,7 +290,7 @@ Examples:
     parser.add_argument('--max-loc', type=int, default=100, 
                        help='Max lines of code for God Class (default: 100)')
     
-    #duplicated code rule
+    # Duplicated code rule
     parser.add_argument('--no-dup-check', action='store_true', 
                        help='Disable duplicated code detection')
     parser.add_argument('--dup-similarity', type=float, default=0.85, 
@@ -203,7 +302,7 @@ Examples:
     parser.add_argument('--dup-check-between-only', action='store_true',
                        help='Check duplicated code only between functions (not within functions)')
     
-    #long method rule
+    # Long method rule
     parser.add_argument('--no-long-method', action='store_true', 
                        help='Disable Long Method detection')
     parser.add_argument('--method-max-loc', type=int, default=25, 
@@ -211,7 +310,7 @@ Examples:
     parser.add_argument('--max-cyclomatic', type=int, default=10, 
                        help='Max cyclomatic complexity for method (default: 10)')
     
-    #dead code rule
+    # Dead code rule
     parser.add_argument('--no-dead-code', action='store_true', 
                        help='Disable Dead Code detection')
     
@@ -219,7 +318,7 @@ Examples:
     parser.add_argument('--no-mutable-default', action='store_true',
                        help='Disable Mutable Default Arguments detection')
     
-    #carbon tracking
+    # Carbon tracking
     parser.add_argument('--no-carbon', action='store_true', 
                        help='Disable carbon emissions tracking')
     
@@ -240,10 +339,11 @@ Examples:
         args.dup_check_within = True
         args.dup_check_between = True
 
-    analyze_code_smells(args.file, args)
-    carbon_track(args.file, args)
+    # Run analysis
+    analyze_code_smells(args.path, args)
+    carbon_track(args.path, args)
 
-    print("\nAnalysis complete.")
+    print("\n✨ Analysis complete.\n")
 
 if __name__ == "__main__":
     main()
