@@ -6,7 +6,13 @@ Installation:
 ```bash
 pip install -e .
 ```
-to run test (type in terminal): 
+
+to run test (whole project): 
 ```bash
-python src/green_code_smell/cli.py tests/[file name].py
+python src/green_code_smell/cli.py .
+```
+
+to run test (per folder/file): 
+```bash
+python src/green_code_smell/cli.py [folder or file name]
 ```
