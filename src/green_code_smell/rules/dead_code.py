@@ -75,7 +75,7 @@ class DeadCodeRule:
                 issues.append({
                     "rule": self.name,
                     "lineno": lineno,
-                    "message": f"Unused {def_type} '{name}' is never referenced"
+                    "message": f"Unused {def_type} '{name}' is never referenced. Suggest removing it."
                 })
     
     def _check_unreachable(self, tree, issues):
@@ -115,7 +115,7 @@ class DeadCodeRule:
                 issues.append({
                     "rule": self.name,
                     "lineno": stmt.lineno,
-                    "message": f"Unreachable code after statement at line {terminator_line}"
+                    "message": f"Unreachable code after statement at line {terminator_line}. Consider removing it."
                 })
                 # Only report first unreachable statement in sequence
                 break

@@ -17,6 +17,6 @@ class MutableDefaultArgumentsRule:
                             issues.append({
                                 "rule": self.name,
                                 "lineno": node.lineno,
-                                "message": f"Function '{node.name}' has a mutable default argument."
+                                "message": f"Function '{node.name}' has a mutable default argument. Consider using None and initializing inside the function.",
                             })
         return issues

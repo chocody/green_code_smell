@@ -1,10 +1,14 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "green_code_smell"
-version = "0.0.1.1"
+name = "pygreensense"
+version = "0.0.3"
 authors = [
   { name="chocody", email="chgun47@gmail.com" },
 ]
-description = "A green code smell package"
+description = "A green code smell detection package"
 readme = "README.md"
 requires-python = ">=3.9"
 classifiers = [
@@ -13,7 +17,12 @@ classifiers = [
 ]
 license = "MIT"
 license-files = ["LICEN[CS]E*"]
+dependencies = [
+    "codecarbon>=1.25.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/chocody/green_code_smell"
 Issues = "https://github.com/chocody/green_code_smell/issues"
+[project.scripts]
+pygreensense = "green_code_smell.cli:main"

@@ -374,6 +374,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Run analysis on current project (from root)
+  %(prog)s run
+  
   # Analyze single file
   %(prog)s myfile.py
   
@@ -397,6 +400,12 @@ Examples:
     )
     
     parser.add_argument('path', help='Path to Python file or project directory to check')
+  %(prog)s run --no-carbon  # Run with carbon tracking disabled
+        """
+    )
+    
+    parser.add_argument('path', nargs='?', default=None,
+                       help='Path to Python file or project directory to check (or "run" to analyze current directory)')
     
     # Excessive log rule
     parser.add_argument('--no-log-check', action='store_true', 
@@ -445,6 +454,15 @@ Examples:
                        help='Disable carbon emissions tracking')
     
     args = parser.parse_args()
+    
+    # If no path provided, show help
+    if args.path is None:
+        parser.print_help()
+        sys.exit(0)
+    
+    # If path is "run", use current directory
+    if args.path == "run":
+        args.path = "."
     
     # Handle duplicated code check options
     if args.dup_check_within_only and args.dup_check_between_only:
