@@ -1,6 +1,8 @@
 import sys
 import argparse
 from pathlib import Path
+import csv
+from datetime import datetime
 
 # Try to import from installed package first, then relative
 try:
@@ -179,72 +181,123 @@ def display_results(all_results, total_issues, all_files, args):
     
     print("=" * 80 + "\n")
 
+def read_codecarbon_csv(csv_path='emissions.csv'):
+    """Read carbon emissions data from codecarbon CSV file and store in separate lists"""
+    emissions_list = []
+    energy_consumed_list = []
+    region_list = []
+    country_name_list = []
+    cpu_power_list = []
+    ram_power_list = []
+    cpu_energy_list = []
+    ram_energy_list = []
+    emissions_rate_list = []
+    
+    if not Path(csv_path).exists():
+        return (emissions_list, energy_consumed_list, region_list, country_name_list,
+                cpu_power_list, ram_power_list,
+                cpu_energy_list, ram_energy_list, emissions_rate_list)
+    
+    try:
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                emissions_list.append(float(row.get('emissions', 0)))
+                energy_consumed_list.append(float(row.get('energy_consumed', 0)))
+                region_list.append(row.get('region', 'N/A'))
+                country_name_list.append(row.get('country_name', 'N/A'))
+                cpu_power_list.append(float(row.get('cpu_power', 0)))
+                ram_power_list.append(float(row.get('ram_power', 0)))
+                cpu_energy_list.append(float(row.get('cpu_energy', 0)))
+                ram_energy_list.append(float(row.get('ram_energy', 0)))
+                emissions_rate_list.append(float(row.get('emissions_rate', 0)))
+    except Exception as e:
+        print(f"⚠️  Warning: Could not read codecarbon CSV: {e}")
+    
+    return (emissions_list, energy_consumed_list, region_list, country_name_list,
+            cpu_power_list, ram_power_list,
+            cpu_energy_list, ram_energy_list, emissions_rate_list)
+
 def carbon_track(path, args):
     """Track carbon emissions for the analysis"""
+    if not CODECARBON_AVAILABLE or args.no_carbon:
+        return
+    
     python_files = get_python_files(path)
     
     if not python_files:
         return
     
-    # Initialize carbon tracker
-    avg_emissions = []
     rules = setup_rules(args)
     
-    for i in range(5):  # Run 5 times for averaging
-        tracker = None
-        if CODECARBON_AVAILABLE and not args.no_carbon:
-            try:
-                tracker = EmissionsTracker(
-                    log_level="error",
-                    save_to_file=False,
-                    save_to_api=False,
-                )
-                tracker.start()
-            except Exception as e:
-                print(f"⚠️  Warning: Could not start carbon tracking: {e}\n")
-                tracker = None
-                break
-        
-        # Perform analysis
+    # Clear existing emissions.csv if exists
+    csv_path = 'emissions.csv'
+    if Path(csv_path).exists():
         try:
-            for py_file in python_files:
-                try:
-                    analyze_file(str(py_file), rules)
-                except:
-                    pass  # Ignore errors during carbon tracking
+            Path(csv_path).unlink()
         except:
             pass
-        
-        # Stop tracker and record emissions
-        try:
-            emissions = None
-            if tracker:
-                try:
-                    emissions = tracker.stop()
-                except Exception as e:
-                    print(f"⚠️  Warning: Could not stop carbon tracking: {e}")
-                    break
-            avg_emissions.append(emissions)
-        except Exception as e:
-            if tracker:
-                tracker.stop()
-            break
     
-    # Calculate and display average emissions
-    if avg_emissions and any(e is not None for e in avg_emissions):
-        formatted_emissions = [f"{e:.6e}" for e in avg_emissions if e is not None]
-        print("\n" + "=" * 80)
-        print("🌱 Carbon Emissions Tracking:")
-        print("-" * 80)
-        print(f"Files analyzed: {len(python_files)}")
-        print(f"Runs completed: {len([e for e in avg_emissions if e is not None])}")
-        print("Carbon track history each loop:", formatted_emissions)
+    # Run analysis once with carbon tracking (suppress output)
+    tracker = None
+    try:
+        import logging
+        logging.getLogger("codecarbon").setLevel(logging.CRITICAL)
         
-        valid_emissions = [e for e in avg_emissions if e is not None]
-        if valid_emissions:
-            avg = sum(valid_emissions) / len(valid_emissions)
-            print(f"Average carbon emissions: {avg:.6e} kg CO2")
-        print("=" * 80)
+        tracker = EmissionsTracker(
+            log_level="critical",
+            save_to_file=True,
+            save_to_api=False,
+            output_file=csv_path,
+            allow_multiple_runs=True
+        )
+        tracker.start()
+        
+        # Perform analysis
+        for py_file in python_files:
+            try:
+                analyze_file(str(py_file), rules)
+            except:
+                pass  # Ignore errors during carbon tracking
+        
+        tracker.stop()
+        
+    except Exception as e:
+        if tracker:
+            try:
+                tracker.stop()
+            except:
+                pass
+        return
+    
+    # Read and store results from CSV in separate variables
+    (emissions_list, energy_consumed_list, region_list, country_name_list,
+     cpu_power_list, ram_power_list,
+     cpu_energy_list, ram_energy_list, emissions_rate_list) = read_codecarbon_csv(csv_path)
+    
+    if emissions_list:
+        # Get single values from lists (first entry)
+        emission = emissions_list[0]
+        energy_consumed = energy_consumed_list[0]
+        region = region_list[0]
+        country_name = country_name_list[0]
+        cpu_power = cpu_power_list[0]
+        ram_power = ram_power_list[0]
+        cpu_energy = cpu_energy_list[0]
+        ram_energy = ram_energy_list[0]
+        emissions_rate = emissions_rate_list[0]
+        
+        # Display results
+        print(f"Files analyzed: {len(python_files)}")
+        print(f"CPU power: {cpu_power:.6f} W")
+        print(f"CPU energy: {cpu_energy:.6f} kWh")
+        print(f"RAM power: {ram_power:.6f} W")
+        print(f"RAM energy: {ram_energy:.6f} kWh")
+        print(f"Emission: {emission:.6e} kg CO2")
+        print(f"Energy consumed: {energy_consumed:.6f} kWh")
+        print(f"Emissions rate: {emissions_rate:.6f} kg CO2/kWh")
+        print(f"Region: {region}")
+        print(f"Country: {country_name}")
 
 def main():
     parser = argparse.ArgumentParser(
