@@ -299,6 +299,75 @@ def carbon_track(path, args):
         print(f"Region: {region}")
         print(f"Country: {country_name}")
 
+# Old carbon tracking method (averaging over 5 runs)
+
+# def carbon_track(path, args):
+#     """Track carbon emissions for the analysis"""
+#     python_files = get_python_files(path)
+    
+#     if not python_files:
+#         return
+    
+#     # Initialize carbon tracker
+#     avg_emissions = []
+#     rules = setup_rules(args)
+    
+#     for i in range(5):  # Run 5 times for averaging
+#         tracker = None
+#         if CODECARBON_AVAILABLE and not args.no_carbon:
+#             try:
+#                 tracker = EmissionsTracker(
+#                     log_level="error",
+#                     save_to_file=False,
+#                     save_to_api=False,
+#                 )
+#                 tracker.start()
+#             except Exception as e:
+#                 print(f"⚠️  Warning: Could not start carbon tracking: {e}\n")
+#                 tracker = None
+#                 break
+        
+#         # Perform analysis
+#         try:
+#             for py_file in python_files:
+#                 try:
+#                     analyze_file(str(py_file), rules)
+#                 except:
+#                     pass  # Ignore errors during carbon tracking
+#         except:
+#             pass
+        
+#         # Stop tracker and record emissions
+#         try:
+#             emissions = None
+#             if tracker:
+#                 try:
+#                     emissions = tracker.stop()
+#                 except Exception as e:
+#                     print(f"⚠️  Warning: Could not stop carbon tracking: {e}")
+#                     break
+#             avg_emissions.append(emissions)
+#         except Exception as e:
+#             if tracker:
+#                 tracker.stop()
+#             break
+    
+#     # Calculate and display average emissions
+#     if avg_emissions and any(e is not None for e in avg_emissions):
+#         formatted_emissions = [f"{e:.6e}" for e in avg_emissions if e is not None]
+#         print("\n" + "=" * 80)
+#         print("🌱 Carbon Emissions Tracking:")
+#         print("-" * 80)
+#         print(f"Files analyzed: {len(python_files)}")
+#         print(f"Runs completed: {len([e for e in avg_emissions if e is not None])}")
+#         print("Carbon track history each loop:", formatted_emissions)
+        
+#         valid_emissions = [e for e in avg_emissions if e is not None]
+#         if valid_emissions:
+#             avg = sum(valid_emissions) / len(valid_emissions)
+#             print(f"Average carbon emissions: {avg:.6e} kg CO2")
+#         print("=" * 80)
+
 def main():
     parser = argparse.ArgumentParser(
         description='Check Python file or project for green code smells.',
