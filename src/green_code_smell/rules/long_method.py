@@ -74,7 +74,7 @@ class LongMethodRule:
                     issues.append({
                         "rule": self.name,
                         "lineno": node.lineno,
-                        "message": f"Method '{node.name}' is too long: {', '.join(problems)}"
+                        "message": f"Method '{node.name}' is too long: {', '.join(problems)}. Consider refactoring by extracting smaller methods.",
                     })
         
         return issues

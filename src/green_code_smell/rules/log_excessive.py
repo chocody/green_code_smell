@@ -21,7 +21,7 @@ class LogExcessiveRule:
                     issues.append({
                         "rule": self.name,
                         "lineno": node.lineno,
-                        "message": f"Function '{node.name}' has {log_count} logging statements."
+                        "message": f"Function '{node.name}' has {log_count} logging statements. Consider reducing logging."
                     })
             # Check for logging inside loops
             if isinstance(node, (ast.For, ast.While)):
@@ -33,6 +33,6 @@ class LogExcessiveRule:
                         issues.append({
                             "rule": self.name,
                             "lineno": child.lineno,
-                            "message": "Logging statement inside loop may lead to excessive logging."
+                            "message": "Logging statement inside loop may lead to excessive logging. Consider moving it outside the loop."
                         })
         return issues

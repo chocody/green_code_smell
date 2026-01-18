@@ -66,7 +66,7 @@ class GodClassRule:
                     issues.append({
                         "rule": self.name,
                         "lineno": node.lineno,
-                        "message": f"Class '{node.name}' is a God Class: {', '.join(problems)}"
+                        "message": f"Class '{node.name}' is a God Class: {', '.join(problems)}. Consider refactoring by extract into sub class.",
                     })
         
         return issues

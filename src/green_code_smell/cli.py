@@ -509,6 +509,15 @@ Examples:
     
     args = parser.parse_args()
     
+    # If no path provided, show help
+    if args.path is None:
+        parser.print_help()
+        sys.exit(0)
+    
+    # If path is "run", use current directory
+    if args.path == "run":
+        args.path = "."
+    
     # Handle duplicated code check options
     if args.dup_check_within_only and args.dup_check_between_only:
         print("❌ Error: Cannot use both --dup-check-within-only and --dup-check-between-only")
