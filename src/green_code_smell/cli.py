@@ -64,7 +64,7 @@ def get_python_files(path):
 def find_main_file(path):
     """
     Try to automatically find the main entry point file in a project.
-    Returns the most likely main file or None.
+    Returns the most likely main file, or an error message string, or None.
     """
     path = Path(path)
     
@@ -74,31 +74,34 @@ def find_main_file(path):
             return path
         return None
     
-    # If it's a directory, search for common main file names
+    # If it's a directory, search for files with main entry points
     if path.is_dir():
-        common_names = ['main.py', 'app.py', 'run.py', 'start.py', '__main__.py']
-        
-        # Check in root directory first
-        for name in common_names:
-            candidate = path / name
-            if candidate.exists() and has_main_entry(candidate):
-                return candidate
-        
-        # Search recursively for files with main entry points
+        # Collect all candidates with main entry points
         candidates = []
         for py_file in path.rglob('*.py'):
             # Skip excluded directories
-            exclude_dirs = {'venv', '.venv', 'env', '__pycache__', '.git', 'node_modules', '.pytest_cache', '.tox', 'tests', 'test'}
+            exclude_dirs = {'venv', '.venv', 'env', '__pycache__', '.git', 'node_modules', '.pytest_cache', '.tox'}
             if any(parent.name in exclude_dirs for parent in py_file.parents):
                 continue
             
             if has_main_entry(py_file):
-                # Prioritize files in root or with common names
-                if py_file.parent == path:
-                    return py_file
                 candidates.append(py_file)
         
-        # Return first candidate if found
+        # Handle different cases
+        if len(candidates) == 0:
+            return "error no entry point found"
+        
+        if len(candidates) > 1:
+            print(f"🔍 Found {len(candidates)} main entry candidates:")
+            for candidate in candidates:
+                try:
+                    display_path = candidate.relative_to(Path.cwd())
+                except ValueError:
+                    display_path = candidate
+                print(f"    {display_path}")
+            print()
+            return "error too many entry point found please specify"
+        
         if candidates:
             return candidates[0]
     
@@ -317,6 +320,18 @@ def carbon_track(path, args):
         # Try to auto-detect main file
         target_file = find_main_file(path)
         
+        # Check for error messages returned from find_main_file
+        if isinstance(target_file, str):
+            if target_file == "error no entry point found":
+                print("⚠️  No main entry point found for carbon tracking.")
+                print("   Use --carbon-run <file.py> to specify the file to run, or")
+                print("   use --no-carbon to disable carbon tracking.\n")
+            elif target_file == "error too many entry point found please specify":
+                print("⚠️  Multiple main entry point candidates found. Please specify which one to run.")
+                print("   Use --carbon-run <file.py> to specify the file to run, or")
+                print("   use --no-carbon to disable carbon tracking.\n")
+            return
+        
         if not target_file:
             print("⚠️  No main entry point found for carbon tracking.")
             print("   Use --carbon-run <file.py> to specify the file to run, or")
@@ -364,6 +379,12 @@ def carbon_track(path, args):
         if result.stdout:
             print("\n📝 Program output:")
             print(result.stdout)
+        else:
+            print("\n⚠️  No output captured. The entry point was executed but may not have produced any output.")
+            print("   This could mean:")
+            print("   - The program ran silently without print statements")
+            print("   - The main() function was not called")
+            print("   - The entry point only performs background operations\n")
         
         if result.stderr:
             print("\n⚠️  Program errors/warnings:")
