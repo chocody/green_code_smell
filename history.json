@@ -1,0 +1,22 @@
+[
+    {
+        "date_time": "2026-01-19 16:46:26.450464",
+        "emission": 3.5534164429196e-06,
+        "enerygy_consumed": 6.465659314279372e-06,
+        "region": "bangkok",
+        "country_name": "Thailand",
+        "emission_rate": 5.7052383845956575e-05,
+        "SCI": 2,
+        "status": "Normal"
+    },
+    {
+        "date_time": "2026-01-19 16:50:14.390144",
+        "emission": 4.152411384061266e-06,
+        "enerygy_consumed": 7.555567373920347e-06,
+        "region": "bangkok",
+        "country_name": "Thailand",
+        "emission_rate": 5.6991021045467686e-05,
+        "SCI": 2,
+        "status": "Hotter"
+    }
+]

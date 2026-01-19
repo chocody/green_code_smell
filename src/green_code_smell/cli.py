@@ -5,6 +5,8 @@ import csv
 from datetime import datetime
 import subprocess
 import ast
+import json
+import os
 
 # Try to import from installed package first, then relative
 try:
@@ -426,6 +428,48 @@ def carbon_track(path, args):
         cpu_energy = cpu_energy_list[0]
         ram_energy = ram_energy_list[0]
         emissions_rate = emissions_rate_list[0]
+
+        # Mock SCI
+        sci = 5
+
+        # Save log history of running lib
+        file_path = "history.json"
+        if os.path.exists(file_path):
+            with open(file_path, "r") as f:
+                try:
+                    data = json.load(f)
+                    if not isinstance(data, list):
+                        data = [data]
+                except json.JSONDecodeError:
+                    data = []
+        else:
+            data = []
+        
+        if len(data) == 0:
+            status = "Normal"
+        else:
+            if sci < data[-1]["SCI"]:
+                status = "Greener"
+            elif sci == data[-1]["SCI"]:
+                status = "Normal"
+            else:
+                status = "Hotter"
+
+        metric = {
+            "date_time": str(datetime.now()),
+            "emission": emission,
+            "enerygy_consumed": energy_consumed,
+            "region": region,
+            "country_name": country_name,
+            "emission_rate": emissions_rate,
+            "SCI": sci,
+            "status": status
+        }
+
+        data.append(metric)
+        json_str = json.dumps(data, indent=4)
+        with open(file_path, "w") as f:
+            f.write(json_str)
         
         # Display results
         print("\n" + "=" * 80)
