@@ -447,12 +447,12 @@ def carbon_track(path, args):
 
         if len(data) == 0:
             status = "Normal"
-            id = 0
+            id = 1
         else:
-            id = data[-1]["id"]
+            id = data[-1]["id"] + 1
             if sci < data[-1]["SCI"]:
                 status = "Greener"
-            elif sci == data[-1]["SCI"] + 1:
+            elif sci == data[-1]["SCI"]:
                 status = "Normal"
             else:
                 status = "Hotter"
