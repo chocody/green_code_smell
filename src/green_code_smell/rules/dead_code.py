@@ -68,6 +68,7 @@ class DeadCodeRule:
                     all_issues.append({
                         "rule": self.name,
                         "lineno": lineno,
+                        "file": file_path,  # ✅ Added file field
                         "message": f"Unused {def_type} '{name}' is never referenced. Suggest removing it."
                     })
         
@@ -76,7 +77,8 @@ class DeadCodeRule:
             try:
                 with open(py_file, 'r', encoding='utf-8') as f:
                     tree = ast.parse(f.read())
-                    self._check_unreachable(tree, all_issues)
+                    file_str = str(py_file)
+                    self._check_unreachable(tree, all_issues, file_str)  # Pass file_str
             except Exception:
                 continue
         
@@ -177,28 +179,28 @@ class DeadCodeRule:
                     "message": f"Unused {def_type} '{name}' is never referenced. Suggest removing it."
                 })
     
-    def _check_unreachable(self, tree, issues):
+    def _check_unreachable(self, tree, issues, file_path=None):
         """Check for unreachable code after return, break, continue, raise."""
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.For, ast.While, ast.If, ast.With, ast.Try)):
                 # Check main body
                 if hasattr(node, 'body'):
-                    self._check_body_reachability(node.body, issues)
+                    self._check_body_reachability(node.body, issues, file_path)
                 
                 # Check else blocks
                 if hasattr(node, 'orelse') and node.orelse:
-                    self._check_body_reachability(node.orelse, issues)
+                    self._check_body_reachability(node.orelse, issues, file_path)
                 
                 # Check except handlers
                 if hasattr(node, 'handlers'):
                     for handler in node.handlers:
-                        self._check_body_reachability(handler.body, issues)
+                        self._check_body_reachability(handler.body, issues, file_path)
                 
                 # Check finally blocks
                 if hasattr(node, 'finalbody') and node.finalbody:
-                    self._check_body_reachability(node.finalbody, issues)
+                    self._check_body_reachability(node.finalbody, issues, file_path)
     
-    def _check_body_reachability(self, body, issues):
+    def _check_body_reachability(self, body, issues, file_path=None):
         """Check if statements after control flow terminators are unreachable."""
         terminator_found = False
         terminator_line = None
@@ -211,11 +213,15 @@ class DeadCodeRule:
             
             # Report unreachable code after terminator
             elif terminator_found and not self._is_docstring(stmt, i):
-                issues.append({
+                issue = {
                     "rule": self.name,
                     "lineno": stmt.lineno,
                     "message": f"Unreachable code after statement at line {terminator_line}. Consider removing it."
-                })
+                }
+                # Add file field if in project mode
+                if file_path and self.is_project_mode:
+                    issue["file"] = file_path
+                issues.append(issue)
                 # Only report first unreachable statement in sequence
                 break
     

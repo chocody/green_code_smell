@@ -1,4 +1,3 @@
-# core.py - UPDATED
 import ast
 from pathlib import Path
 
@@ -9,11 +8,19 @@ def analyze_file(file_path, rules, project_root=None):
     issues = []
 
     for rule in rules:
-        # Special handling for DeadCodeRule - use project mode
-        if rule.__class__.__name__ == 'DeadCodeRule' and project_root:
-            # Skip per-file analysis for DeadCodeRule
-            continue
-        issues.extend(rule.check(tree))
+        # Special handling for DeadCodeRule
+        if rule.__class__.__name__ == 'DeadCodeRule':
+            # For single file analysis, use the file's directory as project root
+            rule.project_root = str(Path(file_path).parent)
+            rule.single_file_mode = True  # ✅ Enable single-file mode
+            rule.target_file = str(Path(file_path).resolve())  # ✅ Set target file
+            rule_issues = rule.check(tree)
+            # Add file path to each issue
+            for issue in rule_issues:
+                issue['file'] = file_path
+            issues.extend(rule_issues)
+        else:
+            issues.extend(rule.check(tree))
 
     return issues
 
