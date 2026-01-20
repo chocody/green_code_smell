@@ -430,7 +430,7 @@ def carbon_track(path, args):
         emissions_rate = emissions_rate_list[0]
 
         # Mock SCI
-        sci = 5
+        sci = 3
 
         # Save log history of running lib
         file_path = "history.json"
@@ -444,18 +444,21 @@ def carbon_track(path, args):
                     data = []
         else:
             data = []
-        
+
         if len(data) == 0:
             status = "Normal"
+            id = 0
         else:
+            id = data[-1]["id"]
             if sci < data[-1]["SCI"]:
                 status = "Greener"
-            elif sci == data[-1]["SCI"]:
+            elif sci == data[-1]["SCI"] + 1:
                 status = "Normal"
             else:
                 status = "Hotter"
 
         metric = {
+            "id": id,
             "date_time": str(datetime.now()),
             "emission": emission,
             "enerygy_consumed": energy_consumed,
