@@ -1,7 +1,6 @@
 import sys
 import argparse
 from pathlib import Path
-import csv
 from datetime import datetime
 import subprocess
 import ast
@@ -264,43 +263,6 @@ def display_results(all_results, total_issues, all_files, args):
     
     print("=" * 80 + "\n")
 
-def read_codecarbon_csv(csv_path='emissions.csv'):
-    """Read carbon emissions data from codecarbon CSV file and store in separate lists"""
-    emissions_list = []
-    energy_consumed_list = []
-    region_list = []
-    country_name_list = []
-    cpu_power_list = []
-    ram_power_list = []
-    cpu_energy_list = []
-    ram_energy_list = []
-    emissions_rate_list = []
-    
-    if not Path(csv_path).exists():
-        return (emissions_list, energy_consumed_list, region_list, country_name_list,
-                cpu_power_list, ram_power_list,
-                cpu_energy_list, ram_energy_list, emissions_rate_list)
-    
-    try:
-        with open(csv_path, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                emissions_list.append(float(row.get('emissions', 0)))
-                energy_consumed_list.append(float(row.get('energy_consumed', 0)))
-                region_list.append(row.get('region', 'N/A'))
-                country_name_list.append(row.get('country_name', 'N/A'))
-                cpu_power_list.append(float(row.get('cpu_power', 0)))
-                ram_power_list.append(float(row.get('ram_power', 0)))
-                cpu_energy_list.append(float(row.get('cpu_energy', 0)))
-                ram_energy_list.append(float(row.get('ram_energy', 0)))
-                emissions_rate_list.append(float(row.get('emissions_rate', 0)))
-    except Exception as e:
-        print(f"⚠️  Warning: Could not read codecarbon CSV: {e}")
-    
-    return (emissions_list, energy_consumed_list, region_list, country_name_list,
-            cpu_power_list, ram_power_list,
-            cpu_energy_list, ram_energy_list, emissions_rate_list)
-
 def carbon_track(path, args):
     """Track carbon emissions for running the target application"""
     if not CODECARBON_AVAILABLE or args.no_carbon:
@@ -343,25 +305,19 @@ def carbon_track(path, args):
     print(f"\n🌱 Tracking carbon emissions for: {target_file}")
     print("-" * 80)
     
-    # Clear existing emissions.csv if exists
-    csv_path = 'emissions.csv'
-    if Path(csv_path).exists():
-        try:
-            Path(csv_path).unlink()
-        except:
-            pass
-    
     # Run the target file with carbon tracking
     tracker = None
+    emissions_data = None
+    
     try:
         import logging
         logging.getLogger("codecarbon").setLevel(logging.CRITICAL)
         
+        # ไม่บันทึก CSV
         tracker = EmissionsTracker(
             log_level="critical",
-            save_to_file=True,
+            save_to_file=False,  # ปิดการบันทึก CSV
             save_to_api=False,
-            output_file=csv_path,
             allow_multiple_runs=True,
             project_name=f"carbon_track_{target_file.stem}"
         )
@@ -375,11 +331,13 @@ def carbon_track(path, args):
             timeout=30  # 30 second timeout
         )
         
-        tracker.stop()
+        # ดึงค่าโดยตรงจาก stop()
+        duration = tracker.stop()
+        emissions_data = tracker.final_emissions_data
         
         # Show output from the run
         if result.stdout:
-            print("\n📝 Program output:")
+            print("\n📋 Program output:")
             print(result.stdout)
         else:
             print("\n⚠️  No output captured. The entry point was executed but may not have produced any output.")
@@ -398,7 +356,8 @@ def carbon_track(path, args):
     except subprocess.TimeoutExpired:
         if tracker:
             try:
-                tracker.stop()
+                duration = tracker.stop()
+                emissions_data = tracker.final_emissions_data
             except:
                 pass
         print("⚠️  Program execution timed out (30s limit)")
@@ -412,22 +371,18 @@ def carbon_track(path, args):
         print(f"⚠️  Error running program: {e}")
         return
     
-    # Read and display results from CSV
-    (emissions_list, energy_consumed_list, region_list, country_name_list,
-     cpu_power_list, ram_power_list,
-     cpu_energy_list, ram_energy_list, emissions_rate_list) = read_codecarbon_csv(csv_path)
-    
-    if emissions_list:
-        # Get single values from lists (first entry)
-        emission = emissions_list[0]
-        energy_consumed = energy_consumed_list[0]
-        region = region_list[0]
-        country_name = country_name_list[0]
-        cpu_power = cpu_power_list[0]
-        ram_power = ram_power_list[0]
-        cpu_energy = cpu_energy_list[0]
-        ram_energy = ram_energy_list[0]
-        emissions_rate = emissions_rate_list[0]
+    # ใช้ข้อมูลจาก emissions_data โดยตรง
+    if emissions_data:
+        # ดึงค่าจาก emissions_data object
+        emission = emissions_data.emissions
+        energy_consumed = emissions_data.energy_consumed
+        region = emissions_data.region
+        country_name = emissions_data.country_name
+        cpu_power = emissions_data.cpu_power
+        ram_power = emissions_data.ram_power
+        cpu_energy = emissions_data.cpu_energy
+        ram_energy = emissions_data.ram_energy
+        emissions_rate = emissions_data.emissions_rate
 
         # Mock SCI
         sci = 3
@@ -461,7 +416,7 @@ def carbon_track(path, args):
             "id": id,
             "date_time": str(datetime.now()),
             "emission": emission,
-            "enerygy_consumed": energy_consumed,
+            "energy_consumed": energy_consumed,
             "region": region,
             "country_name": country_name,
             "emission_rate": emissions_rate,
@@ -479,6 +434,7 @@ def carbon_track(path, args):
         print("🌍 Carbon Emissions Report:")
         print("-" * 80)
         print(f"Target file: {target_file}")
+        print(f"Duration: {duration:.2f} seconds")
         print(f"CPU power: {cpu_power:.6f} W")
         print(f"CPU energy: {cpu_energy:.6f} kWh")
         print(f"RAM power: {ram_power:.6f} W")
@@ -488,6 +444,8 @@ def carbon_track(path, args):
         print(f"Emissions rate: {emissions_rate:.6f} kg CO2/kWh")
         print(f"Region: {region}")
         print(f"Country: {country_name}")
+        print(f"SCI Score: {sci}")
+        print(f"Status: {status}")
         print("=" * 80)
 
 def main():
