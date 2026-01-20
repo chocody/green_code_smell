@@ -1,6 +1,11 @@
 import sys
 import argparse
 from pathlib import Path
+from datetime import datetime
+import subprocess
+import ast
+import json
+import os
 
 # Try to import from installed package first, then relative
 try:
@@ -58,6 +63,85 @@ def get_python_files(path):
     else:
         print(f"❌ Error: Path '{path}' not found!")
         sys.exit(1)
+
+def find_main_file(path):
+    """
+    Try to automatically find the main entry point file in a project.
+    Returns the most likely main file, or an error message string, or None.
+    """
+    path = Path(path)
+    
+    # If it's a file, check if it has a main function or if __name__ == "__main__"
+    if path.is_file():
+        if has_main_entry(path):
+            return path
+        return None
+    
+    # If it's a directory, search for files with main entry points
+    if path.is_dir():
+        # Collect all candidates with main entry points
+        candidates = []
+        for py_file in path.rglob('*.py'):
+            # Skip excluded directories
+            exclude_dirs = {'venv', '.venv', 'env', '__pycache__', '.git', 'node_modules', '.pytest_cache', '.tox'}
+            if any(parent.name in exclude_dirs for parent in py_file.parents):
+                continue
+            
+            if has_main_entry(py_file):
+                candidates.append(py_file)
+        
+        # Handle different cases
+        if len(candidates) == 0:
+            return "error no entry point found"
+        
+        if len(candidates) > 1:
+            print(f"🔍 Found {len(candidates)} main entry candidates:")
+            for candidate in candidates:
+                try:
+                    display_path = candidate.relative_to(Path.cwd())
+                except ValueError:
+                    display_path = candidate
+                print(f"    {display_path}")
+            print()
+            return "error too many entry point found please specify"
+        
+        if candidates:
+            return candidates[0]
+    
+    return None
+
+def has_main_entry(file_path):
+    """
+    Check if a Python file has a main entry point:
+    - if __name__ == "__main__": block
+    - def main() function
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Parse the file
+        tree = ast.parse(content)
+        
+        has_name_main = False
+        has_main_func = False
+        
+        for node in ast.walk(tree):
+            # Check for if __name__ == "__main__":
+            if isinstance(node, ast.If):
+                if isinstance(node.test, ast.Compare):
+                    if isinstance(node.test.left, ast.Name) and node.test.left.id == '__name__':
+                        if any(isinstance(comp, ast.Constant) and comp.value == "__main__" 
+                               for comp in node.test.comparators):
+                            has_name_main = True
+            
+            # Check for def main():
+            if isinstance(node, ast.FunctionDef) and node.name == 'main':
+                has_main_func = True
+        
+        return has_name_main or has_main_func
+    except:
+        return False
 
 def setup_rules(args):
     """Setup analysis rules based on arguments"""
@@ -194,70 +278,188 @@ def display_results(all_results, total_issues, all_files, args):
     print("=" * 80 + "\n")
 
 def carbon_track(path, args):
-    """Track carbon emissions for the analysis"""
-    python_files = get_python_files(path)
-    
-    if not python_files:
+    """Track carbon emissions for running the target application"""
+    if not CODECARBON_AVAILABLE or args.no_carbon:
         return
     
-    # Initialize carbon tracker
-    avg_emissions = []
-    rules = setup_rules(args)
+    # Determine which file to run for carbon tracking
+    target_file = None
     
-    for i in range(5):  # Run 5 times for averaging
-        tracker = None
-        if CODECARBON_AVAILABLE and not args.no_carbon:
+    if args.carbon_run:
+        # User specified a file to run
+        target_file = Path(args.carbon_run)
+        if not target_file.exists():
+            print(f"⚠️  Warning: Specified file '{args.carbon_run}' not found. Skipping carbon tracking.")
+            return
+        if not target_file.suffix == '.py':
+            print(f"⚠️  Warning: Specified file '{args.carbon_run}' is not a Python file. Skipping carbon tracking.")
+            return
+    else:
+        # Try to auto-detect main file
+        target_file = find_main_file(path)
+        
+        # Check for error messages returned from find_main_file
+        if isinstance(target_file, str):
+            if target_file == "error no entry point found":
+                print("⚠️  No main entry point found for carbon tracking.")
+                print("   Use --carbon-run <file.py> to specify the file to run, or")
+                print("   use --no-carbon to disable carbon tracking.\n")
+            elif target_file == "error too many entry point found please specify":
+                print("⚠️  Multiple main entry point candidates found. Please specify which one to run.")
+                print("   Use --carbon-run <file.py> to specify the file to run, or")
+                print("   use --no-carbon to disable carbon tracking.\n")
+            return
+        
+        if not target_file:
+            print("⚠️  No main entry point found for carbon tracking.")
+            print("   Use --carbon-run <file.py> to specify the file to run, or")
+            print("   use --no-carbon to disable carbon tracking.\n")
+            return
+    
+    print(f"\n🌱 Tracking carbon emissions for: {target_file}")
+    print("-" * 80)
+    
+    # Run the target file with carbon tracking
+    tracker = None
+    emissions_data = None
+    
+    try:
+        import logging
+        logging.getLogger("codecarbon").setLevel(logging.CRITICAL)
+        
+        # ไม่บันทึก CSV
+        tracker = EmissionsTracker(
+            log_level="critical",
+            save_to_file=False,  # ปิดการบันทึก CSV
+            save_to_api=False,
+            allow_multiple_runs=True,
+            project_name=f"carbon_track_{target_file.stem}"
+        )
+        tracker.start()
+        
+        # Run the target file as a subprocess
+        result = subprocess.run(
+            [sys.executable, str(target_file)],
+            capture_output=True,
+            text=True,
+            timeout=30  # 30 second timeout
+        )
+        
+        # ดึงค่าโดยตรงจาก stop()
+        duration = tracker.stop()
+        emissions_data = tracker.final_emissions_data
+        
+        # Show output from the run
+        if result.stdout:
+            print("\n📋 Program output:")
+            print(result.stdout)
+        else:
+            print("\n⚠️  No output captured. The entry point was executed but may not have produced any output.")
+            print("   This could mean:")
+            print("   - The program ran silently without print statements")
+            print("   - The main() function was not called")
+            print("   - The entry point only performs background operations\n")
+        
+        if result.stderr:
+            print("\n⚠️  Program errors/warnings:")
+            print(result.stderr)
+        
+        if result.returncode != 0:
+            print(f"\n⚠️  Program exited with code {result.returncode}")
+        
+    except subprocess.TimeoutExpired:
+        if tracker:
             try:
-                tracker = EmissionsTracker(
-                    log_level="error",
-                    save_to_file=False,
-                    save_to_api=False,
-                )
-                tracker.start()
-            except Exception as e:
-                print(f"⚠️  Warning: Could not start carbon tracking: {e}\n")
-                tracker = None
-                break
-        
-        # Perform analysis
-        try:
-            for py_file in python_files:
-                try:
-                    analyze_file(str(py_file), rules)
-                except:
-                    pass  # Ignore errors during carbon tracking
-        except:
-            pass
-        
-        # Stop tracker and record emissions
-        try:
-            emissions = None
-            if tracker:
-                try:
-                    emissions = tracker.stop()
-                except Exception as e:
-                    print(f"⚠️  Warning: Could not stop carbon tracking: {e}")
-                    break
-            avg_emissions.append(emissions)
-        except Exception as e:
-            if tracker:
+                duration = tracker.stop()
+                emissions_data = tracker.final_emissions_data
+            except:
+                pass
+        print("⚠️  Program execution timed out (30s limit)")
+        return
+    except Exception as e:
+        if tracker:
+            try:
                 tracker.stop()
-            break
+            except:
+                pass
+        print(f"⚠️  Error running program: {e}")
+        return
     
-    # Calculate and display average emissions
-    if avg_emissions and any(e is not None for e in avg_emissions):
-        formatted_emissions = [f"{e:.6e}" for e in avg_emissions if e is not None]
-        print("\n" + "=" * 80)
-        print("🌱 Carbon Emissions Tracking:")
-        print("-" * 80)
-        print(f"Files analyzed: {len(python_files)}")
-        print(f"Runs completed: {len([e for e in avg_emissions if e is not None])}")
-        print("Carbon track history each loop:", formatted_emissions)
+    # ใช้ข้อมูลจาก emissions_data โดยตรง
+    if emissions_data:
+        # ดึงค่าจาก emissions_data object
+        emission = emissions_data.emissions
+        energy_consumed = emissions_data.energy_consumed
+        region = emissions_data.region
+        country_name = emissions_data.country_name
+        cpu_power = emissions_data.cpu_power
+        ram_power = emissions_data.ram_power
+        cpu_energy = emissions_data.cpu_energy
+        ram_energy = emissions_data.ram_energy
+        emissions_rate = emissions_data.emissions_rate
+
+        # Mock SCI
+        sci = 3
+
+        # Save log history of running lib
+        file_path = "history.json"
+        if os.path.exists(file_path):
+            with open(file_path, "r") as f:
+                try:
+                    data = json.load(f)
+                    if not isinstance(data, list):
+                        data = [data]
+                except json.JSONDecodeError:
+                    data = []
+        else:
+            data = []
+
+        if len(data) == 0:
+            status = "Normal"
+            id = 1
+        else:
+            id = data[-1]["id"] + 1
+            if sci < data[-1]["SCI"]:
+                status = "Greener"
+            elif sci == data[-1]["SCI"]:
+                status = "Normal"
+            else:
+                status = "Hotter"
+
+        metric = {
+            "id": id,
+            "date_time": str(datetime.now()),
+            "emission": emission,
+            "energy_consumed": energy_consumed,
+            "region": region,
+            "country_name": country_name,
+            "emission_rate": emissions_rate,
+            "SCI": sci,
+            "status": status
+        }
+
+        data.append(metric)
+        json_str = json.dumps(data, indent=4)
+        with open(file_path, "w") as f:
+            f.write(json_str)
         
-        valid_emissions = [e for e in avg_emissions if e is not None]
-        if valid_emissions:
-            avg = sum(valid_emissions) / len(valid_emissions)
-            print(f"Average carbon emissions: {avg:.6e} kg CO2")
+        # Display results
+        print("\n" + "=" * 80)
+        print("🌍 Carbon Emissions Report:")
+        print("-" * 80)
+        print(f"Target file: {target_file}")
+        print(f"Duration: {duration:.2f} seconds")
+        print(f"CPU power: {cpu_power:.6f} W")
+        print(f"CPU energy: {cpu_energy:.6f} kWh")
+        print(f"RAM power: {ram_power:.6f} W")
+        print(f"RAM energy: {ram_energy:.6f} kWh")
+        print(f"Total energy consumed: {energy_consumed:.6f} kWh")
+        print(f"Carbon emissions: {emission:.6e} kg CO2")
+        print(f"Emissions rate: {emissions_rate:.6f} kg CO2/kWh")
+        print(f"Region: {region}")
+        print(f"Country: {country_name}")
+        print(f"SCI Score: {sci}")
+        print(f"Status: {status}")
         print("=" * 80)
 
 def main():
@@ -275,6 +477,13 @@ Examples:
   # Analyze entire project
   %(prog)s ./my_project
   %(prog)s .
+  
+  # With carbon tracking (auto-detect main file)
+  %(prog)s . 
+  
+  # Specify file to run for carbon tracking
+  %(prog)s . --carbon-run main.py
+  %(prog)s . --carbon-run src/app.py
   
   # With custom options
   %(prog)s ./src --no-log-check
@@ -340,6 +549,8 @@ Examples:
     # Carbon tracking
     parser.add_argument('--no-carbon', action='store_true', 
                        help='Disable carbon emissions tracking')
+    parser.add_argument('--carbon-run', type=str, metavar='FILE',
+                       help='Specify Python file to run for carbon tracking (e.g., main.py, app.py)')
     
     args = parser.parse_args()
     
