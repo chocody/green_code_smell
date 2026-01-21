@@ -440,7 +440,7 @@ def carbon_track(path, args):
         print(f"🌍 Carbon Emissions Report (Average of {len(all_runs)} runs):")
         print("-" * 80)
         print(f"Target file: {target_file}")
-        print(f"Average duration: {avg_duration:.2f} seconds")
+        # print(f"Average duration: {avg_duration:.2f} seconds")
         print(f"Average CPU power: {avg_cpu_power:.6f} W")
         print(f"Average CPU energy: {avg_cpu_energy:.6f} kWh")
         print(f"Average RAM power: {avg_ram_power:.6f} W")
