@@ -1,0 +1,24 @@
+[
+    {
+        "id": 1,
+        "date_time": "2026-01-20 22:03:07.908597",
+        "emission": 3.5833339811131017e-06,
+        "enerygy_consumed": 6.520096111257266e-06,
+        "region": "bangkok",
+        "country_name": "Thailand",
+        "emission_rate": 5.541440920435047e-05,
+        "SCI": 3,
+        "status": "Normal"
+    },
+    {
+        "id": 2,
+        "date_time": "2026-01-20 22:03:27.799190",
+        "emission": 2.525305986976737e-08,
+        "enerygy_consumed": 6.4137116666339956e-06,
+        "region": "quebec",
+        "country_name": "Canada",
+        "emission_rate": 3.965730794795034e-07,
+        "SCI": 3,
+        "status": "Normal"
+    }
+]
