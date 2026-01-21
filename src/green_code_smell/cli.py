@@ -16,6 +16,7 @@ try:
     from green_code_smell.rules.long_method import LongMethodRule
     from green_code_smell.rules.dead_code import DeadCodeRule
     from green_code_smell.rules.mutable_default_arguments import MutableDefaultArgumentsRule
+    from green_code_smell.core import analyze_project, analyze_file
 except ImportError:
     # If running directly, use relative imports
     import os
@@ -27,6 +28,7 @@ except ImportError:
     from src.green_code_smell.rules.long_method import LongMethodRule
     from src.green_code_smell.rules.dead_code import DeadCodeRule
     from src.green_code_smell.rules.mutable_default_arguments import MutableDefaultArgumentsRule
+    from src.green_code_smell.core import analyze_project, analyze_file
 
 # Import CodeCarbon
 try:
@@ -229,18 +231,26 @@ def analyze_code_smells(path, args):
     
     rules = setup_rules(args)
     
-    # Analyze all files
-    all_results = {}
-    total_issues = 0
-    
-    for py_file in python_files:
-        try:
-            issues = analyze_file(str(py_file), rules)
-            if issues:
-                all_results[py_file] = issues
-                total_issues += len(issues)
-        except Exception as e:
-            print(f"⚠️  Warning: Could not analyze {py_file}: {e}")
+    # For projects, use analyze_project to handle DeadCodeRule properly
+    if Path(path).is_dir():
+        all_issues = analyze_project(path, rules)
+        # Group issues by file
+        all_results = {}
+        for issue in all_issues:
+            file_path = issue.get('file')
+            if file_path:
+                file_key = Path(file_path)
+                if file_key not in all_results:
+                    all_results[file_key] = []
+                all_results[file_key].append(issue)
+        total_issues = len(all_issues)
+    else:
+        # Single file analysis
+        all_results = {}
+        all_issues = analyze_file(str(python_files[0]), rules, project_root=path)
+        if all_issues:
+            all_results[python_files[0]] = all_issues
+        total_issues = len(all_issues)
     
     display_results(all_results, total_issues, python_files, args)
     
@@ -263,8 +273,12 @@ def display_results(all_results, total_issues, all_files, args):
         # Show relative path if possible
         try:
             display_path = file_path.relative_to(Path.cwd())
-        except ValueError:
-            display_path = file_path
+        except (ValueError, TypeError):
+            # If file_path is a string, convert to Path first
+            try:
+                display_path = Path(file_path).relative_to(Path.cwd())
+            except ValueError:
+                display_path = Path(file_path)
         
         print(f"\n📄 {display_path} ({len(issues)} issue(s))")
         print("-" * 80)
