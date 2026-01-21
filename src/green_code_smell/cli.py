@@ -16,7 +16,7 @@ try:
     from green_code_smell.rules.dead_code import DeadCodeRule
     from green_code_smell.rules.mutable_default_arguments import MutableDefaultArgumentsRule
     from green_code_smell.core import analyze_project, analyze_file
-    from green_code_smell.constants import BREAK_LINE_NO, EXP 
+    from green_code_smell.constants import BREAK_LINE_NO, KG_GRAMS, SEC_HOUR
 except ImportError:
     # If running directly, use relative imports
     import os
@@ -28,7 +28,7 @@ except ImportError:
     from src.green_code_smell.rules.dead_code import DeadCodeRule
     from src.green_code_smell.rules.mutable_default_arguments import MutableDefaultArgumentsRule
     from src.green_code_smell.core import analyze_project, analyze_file
-    from src.green_code_smell.constants import BREAK_LINE_NO, EXP 
+    from src.green_code_smell.constants import BREAK_LINE_NO, KG_GRAMS, SEC_HOUR
 
 # Import CodeCarbon
 try:
@@ -541,8 +541,8 @@ def carbon_track(path, args, python_files):
         region = all_runs[0]['region']
         country_name = all_runs[0]['country_name']
 
-        # Convert emissions_rate from kg CO2/kWh to gCO2eq/kWh
-        emissions_rate_grams = avg_emissions_rate * 1000
+        # Convert emissions_rate from kg CO2/kWs to gCO2eq/kWh
+        emissions_rate_grams = avg_emissions_rate * SEC_HOUR * KG_GRAMS
         
         # Count total lines of code in the project
         total_loc = count_total_lines_in_project(python_files)
@@ -611,9 +611,6 @@ def carbon_track(path, args, python_files):
         json_str = json.dumps(data, indent=4)
         with open(file_path, "w") as f:
             f.write(json_str)
-
-        sci_per_loc = green_metrics['sci_gCO2eq_per_line'] * EXP
-        sci_per_exec = green_metrics['sci_gCO2eq_per_exec'] * EXP
         
         # Display results
         print("\n" + "=" * BREAK_LINE_NO)
@@ -631,10 +628,10 @@ def carbon_track(path, args, python_files):
         print(f"\n📊 Code Metrics:")
         print(f"  Total lines of code: {green_metrics['lines_of_code']} LOC")
         print(f"\n🌱 SCI Metrics (Software Carbon Intensity):")
-        print(f"  ├─ Per line of code: {sci_per_loc:.2f}e-09 gCO2eq/LOC")
+        print(f"  ├─ Per line of code: {green_metrics['sci_gCO2eq_per_line']:.2f}e-09 gCO2eq/LOC")
         print(f"  │  ℹ️  Lower is greener! Shorter code = lower carbon footprint")
         print(f"  │")
-        print(f"  └─ Per one execution: {sci_per_exec:.2f}e-09 gCO2eq/Execution")
+        print(f"  └─ Per one execution: {green_metrics['sci_gCO2eq_per_exec']:.2f}e-09 gCO2eq/Execution")
         print(f"     ℹ️  Average carbon footprint per execution")
         
         print(f"\n📈 Status: {status}")
