@@ -303,48 +303,68 @@ def carbon_track(path, args):
             return
     
     print(f"\n🌱 Tracking carbon emissions for: {target_file}")
+    print("   Running 5 iterations for average calculations...")
     print("-" * 80)
     
-    # Run the target file with carbon tracking
-    tracker = None
-    emissions_data = None
+    # Run the target file with carbon tracking 5 times
+    all_runs = []
     
     try:
         import logging
         logging.getLogger("codecarbon").setLevel(logging.CRITICAL)
         
-        # ไม่บันทึก CSV
-        tracker = EmissionsTracker(
-            log_level="critical",
-            save_to_file=False,  # ปิดการบันทึก CSV
-            save_to_api=False,
-            allow_multiple_runs=True,
-            project_name=f"carbon_track_{target_file.stem}"
-        )
-        tracker.start()
+        for run_num in range(1, 6):
+            print(f"\n▶️  Run {run_num}/5...")
+            tracker = None
+            emissions_data = None
+            
+            try:
+                tracker = EmissionsTracker(
+                    log_level="critical",
+                    save_to_file=False,
+                    save_to_api=False,
+                    allow_multiple_runs=True,
+                    project_name=f"carbon_track_{target_file.stem}"
+                )
+                tracker.start()
+                
+                # Run the target file as a subprocess
+                result = subprocess.run(
+                    [sys.executable, str(target_file)],
+                    capture_output=True,
+                    text=True,
+                    timeout=30  # 30 second timeout
+                )
+                
+                duration = tracker.stop()
+                emissions_data = tracker.final_emissions_data
+                
+                if emissions_data:
+                    all_runs.append({
+                        'duration': duration,
+                        'emission': emissions_data.emissions,
+                        'energy_consumed': emissions_data.energy_consumed,
+                        'cpu_power': emissions_data.cpu_power,
+                        'ram_power': emissions_data.ram_power,
+                        'cpu_energy': emissions_data.cpu_energy,
+                        'ram_energy': emissions_data.ram_energy,
+                        'emissions_rate': emissions_data.emissions_rate,
+                        'region': emissions_data.region,
+                        'country_name': emissions_data.country_name,
+                    })
+                    print(f"  ✓ Run {run_num} completed")
+            
+            except subprocess.TimeoutExpired:
+                print(f"  ⚠️  Run {run_num} timed out")
+                continue
+            except Exception as e:
+                print(f"  ⚠️  Run {run_num} failed: {e}")
+                continue
         
-        # Run the target file as a subprocess
-        result = subprocess.run(
-            [sys.executable, str(target_file)],
-            capture_output=True,
-            text=True,
-            timeout=30  # 30 second timeout
-        )
-        
-        # ดึงค่าโดยตรงจาก stop()
-        duration = tracker.stop()
-        emissions_data = tracker.final_emissions_data
-        
-        # Show output from the run
+        # Show first run's program output
         if result.stdout:
-            print("\n📋 Program output:")
+            print("\n📋 Program output (from first run):")
             print(result.stdout)
-        else:
-            print("\n⚠️  No output captured. The entry point was executed but may not have produced any output.")
-            print("   This could mean:")
-            print("   - The program ran silently without print statements")
-            print("   - The main() function was not called")
-            print("   - The entry point only performs background operations\n")
         
         if result.stderr:
             print("\n⚠️  Program errors/warnings:")
@@ -353,40 +373,26 @@ def carbon_track(path, args):
         if result.returncode != 0:
             print(f"\n⚠️  Program exited with code {result.returncode}")
         
-    except subprocess.TimeoutExpired:
-        if tracker:
-            try:
-                duration = tracker.stop()
-                emissions_data = tracker.final_emissions_data
-            except:
-                pass
-        print("⚠️  Program execution timed out (30s limit)")
-        return
     except Exception as e:
-        if tracker:
-            try:
-                tracker.stop()
-            except:
-                pass
-        print(f"⚠️  Error running program: {e}")
+        print(f"⚠️  Error during carbon tracking: {e}")
         return
     
-    # ใช้ข้อมูลจาก emissions_data โดยตรง
-    if emissions_data:
-        # ดึงค่าจาก emissions_data object
-        emission = emissions_data.emissions
-        energy_consumed = emissions_data.energy_consumed
-        region = emissions_data.region
-        country_name = emissions_data.country_name
-        cpu_power = emissions_data.cpu_power
-        ram_power = emissions_data.ram_power
-        cpu_energy = emissions_data.cpu_energy
-        ram_energy = emissions_data.ram_energy
-        emissions_rate = emissions_data.emissions_rate
-
+    # Calculate averages from all runs
+    if all_runs:
+        avg_duration = sum(r['duration'] for r in all_runs) / len(all_runs)
+        avg_emission = sum(r['emission'] for r in all_runs) / len(all_runs)
+        avg_energy = sum(r['energy_consumed'] for r in all_runs) / len(all_runs)
+        avg_cpu_power = sum(r['cpu_power'] for r in all_runs) / len(all_runs)
+        avg_ram_power = sum(r['ram_power'] for r in all_runs) / len(all_runs)
+        avg_cpu_energy = sum(r['cpu_energy'] for r in all_runs) / len(all_runs)
+        avg_ram_energy = sum(r['ram_energy'] for r in all_runs) / len(all_runs)
+        avg_emissions_rate = sum(r['emissions_rate'] for r in all_runs) / len(all_runs)
+        region = all_runs[0]['region']
+        country_name = all_runs[0]['country_name']
+        
         # Mock SCI
         sci = 3
-
+        
         # Save log history of running lib
         file_path = "history.json"
         if os.path.exists(file_path):
@@ -399,7 +405,7 @@ def carbon_track(path, args):
                     data = []
         else:
             data = []
-
+        
         if len(data) == 0:
             status = "Normal"
             id = 1
@@ -411,42 +417,44 @@ def carbon_track(path, args):
                 status = "Normal"
             else:
                 status = "Hotter"
-
+        
         metric = {
             "id": id,
             "date_time": str(datetime.now()),
-            "emission": emission,
-            "energy_consumed": energy_consumed,
+            "emission": avg_emission,
+            "energy_consumed": avg_energy,
             "region": region,
             "country_name": country_name,
-            "emission_rate": emissions_rate,
+            "emission_rate": avg_emissions_rate,
             "SCI": sci,
             "status": status
         }
-
+        
         data.append(metric)
         json_str = json.dumps(data, indent=4)
         with open(file_path, "w") as f:
             f.write(json_str)
         
-        # Display results
+        # Display averaged results
         print("\n" + "=" * 80)
-        print("🌍 Carbon Emissions Report:")
+        print(f"🌍 Carbon Emissions Report (Average of {len(all_runs)} runs):")
         print("-" * 80)
         print(f"Target file: {target_file}")
-        print(f"Duration: {duration:.2f} seconds")
-        print(f"CPU power: {cpu_power:.6f} W")
-        print(f"CPU energy: {cpu_energy:.6f} kWh")
-        print(f"RAM power: {ram_power:.6f} W")
-        print(f"RAM energy: {ram_energy:.6f} kWh")
-        print(f"Total energy consumed: {energy_consumed:.6f} kWh")
-        print(f"Carbon emissions: {emission:.6e} kg CO2")
-        print(f"Emissions rate: {emissions_rate:.6f} kg CO2/kWh")
+        print(f"Average duration: {avg_duration:.2f} seconds")
+        print(f"Average CPU power: {avg_cpu_power:.6f} W")
+        print(f"Average CPU energy: {avg_cpu_energy:.6f} kWh")
+        print(f"Average RAM power: {avg_ram_power:.6f} W")
+        print(f"Average RAM energy: {avg_ram_energy:.6f} kWh")
+        print(f"Average total energy consumed: {avg_energy:.6f} kWh")
+        print(f"Average carbon emissions: {avg_emission:.6e} kg CO2")
+        print(f"Average emissions rate: {avg_emissions_rate:.6f} kg CO2/kWh")
         print(f"Region: {region}")
         print(f"Country: {country_name}")
         print(f"SCI Score: {sci}")
         print(f"Status: {status}")
         print("=" * 80)
+    else:
+        print("\n⚠️  No successful runs completed. Unable to calculate averages.")
 
 def main():
     parser = argparse.ArgumentParser(
