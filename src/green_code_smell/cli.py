@@ -73,12 +73,16 @@ def find_main_file(path):
     if path.is_file():
         if has_main_entry(path):
             return path
+        if has_main_function_only(path):
+            return f"error has main function only {path}"
         return None
     
     # If it's a directory, search for files with main entry points
     if path.is_dir():
         # Collect all candidates with main entry points
         candidates = []
+        main_only_candidates = []
+        
         for py_file in path.rglob('*.py'):
             # Skip excluded directories
             exclude_dirs = {'venv', '.venv', 'env', '__pycache__', '.git', 'node_modules', '.pytest_cache', '.tox'}
@@ -87,8 +91,17 @@ def find_main_file(path):
             
             if has_main_entry(py_file):
                 candidates.append(py_file)
+            elif has_main_function_only(py_file):
+                main_only_candidates.append(py_file)
         
         # Handle different cases
+        if len(candidates) == 0 and len(main_only_candidates) > 0:
+            # Found files with def main() but no entry point
+            if len(main_only_candidates) == 1:
+                return f"error has main function only {main_only_candidates[0]}"
+            else:
+                return f"error has main function only multiple {' '.join(str(f) for f in main_only_candidates)}"
+        
         if len(candidates) == 0:
             return "error no entry point found"
         
@@ -110,9 +123,32 @@ def find_main_file(path):
 
 def has_main_entry(file_path):
     """
-    Check if a Python file has a main entry point:
+    Check if a Python file has a proper main entry point:
     - if __name__ == "__main__": block
-    - def main() function
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Parse the file
+        tree = ast.parse(content)
+        
+        for node in ast.walk(tree):
+            # Check for if __name__ == "__main__":
+            if isinstance(node, ast.If):
+                if isinstance(node.test, ast.Compare):
+                    if isinstance(node.test.left, ast.Name) and node.test.left.id == '__name__':
+                        if any(isinstance(comp, ast.Constant) and comp.value == "__main__" 
+                               for comp in node.test.comparators):
+                            return True
+        
+        return False
+    except:
+        return False
+
+def has_main_function_only(file_path):
+    """
+    Check if a Python file has def main() but no proper entry point.
     """
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -137,7 +173,7 @@ def has_main_entry(file_path):
             if isinstance(node, ast.FunctionDef) and node.name == 'main':
                 has_main_func = True
         
-        return has_name_main or has_main_func
+        return has_main_func and not has_name_main
     except:
         return False
 
@@ -286,7 +322,21 @@ def carbon_track(path, args):
         
         # Check for error messages returned from find_main_file
         if isinstance(target_file, str):
-            if target_file == "error no entry point found":
+            if target_file.startswith("error has main function only"):
+                # Extract file path from error message
+                if target_file.startswith("error has main function only multiple"):
+                    files_part = target_file.replace("error has main function only multiple ", "")
+                    print("⚠️  Found files with def main() but no entry point:")
+                    for f in files_part.split():
+                        print(f"    {f}")
+                    print("   Files must contain: if __name__ == \"__main__\":")
+                else:
+                    file_path = target_file.replace("error has main function only ", "")
+                    print(f"⚠️  Warning: {file_path} has def main() but no entry point.")
+                    print("   The file must contain: if __name__ == \"__main__\":")
+                print("   Use --carbon-run <file.py> to specify a file with proper entry point, or")
+                print("   use --no-carbon to disable carbon tracking.\n")
+            elif target_file == "error no entry point found":
                 print("⚠️  No main entry point found for carbon tracking.")
                 print("   Use --carbon-run <file.py> to specify the file to run, or")
                 print("   use --no-carbon to disable carbon tracking.\n")
@@ -372,7 +422,7 @@ def carbon_track(path, args):
         
         if result.returncode != 0:
             print(f"\n⚠️  Program exited with code {result.returncode}")
-        
+
     except Exception as e:
         print(f"⚠️  Error during carbon tracking: {e}")
         return
