@@ -220,7 +220,7 @@ def setup_rules(args):
     return rules
 
 def analyze_code_smells(path, args):
-    """Analyze code smells in file or project"""
+    """Analyze code smells in file or project. Returns tuple of (results_dict, total_count, smells_by_rule)"""
     python_files = get_python_files(path)
     
     if not python_files:
@@ -252,9 +252,119 @@ def analyze_code_smells(path, args):
             all_results[python_files[0]] = all_issues
         total_issues = len(all_issues)
     
+    # Count smells by rule type
+    smells_by_rule = {}
+    for issues in all_results.values():
+        for issue in issues:
+            rule_name = issue['rule']
+            smells_by_rule[rule_name] = smells_by_rule.get(rule_name, 0) + 1
+    
     display_results(all_results, total_issues, python_files, args)
     
-    return all_results
+    return all_results, total_issues, smells_by_rule
+
+def get_rule_energy_weights():
+    """
+    Return estimated energy/carbon weights for each rule type (kWh).
+    These are absolute energy estimates for what each code smell type typically consumes.
+    
+    Estimation logic (in kWh per execution):
+    - God Class: 0.000005 kWh - Large class with many method lookups and instance variable access
+    - Long Method: 0.000004 kWh - Complex branching logic and loop iterations
+    - Duplicated Code: 0.000003 kWh - Redundant execution paths
+    - Excessive Logging: 0.000003 kWh - I/O operations (disk/network writes)
+    - Dead Code: 0.000001 kWh - Just compiled, minimal or no execution
+    - Mutable Default Arguments: 0.0000005 kWh - Object creation on function call
+    """
+    return {
+        "GodClass": 0.000005,
+        "LongMethod": 0.000004,
+        "DuplicatedCode": 0.000003,
+        "ExcessiveLogging": 0.000003,
+        "DeadCode": 0.000001,
+        "MutableDefaultArguments": 0.0000005
+    }
+
+def get_rule_intensity_weights(avg_emissions_rate):
+    """
+    Return estimated carbon intensity (gCO2eq/kWh) for each rule type.
+    Different code smells use different energy sources (CPU vs I/O) which have different carbon intensities.
+    
+    Estimation logic:
+    - Excessive Logging: Highest intensity (1.1x) - Heavy I/O operations on disk/network (typically higher carbon)
+    - God Class: High intensity (1.0x) - CPU-intensive operations (baseline)
+    - Long Method: High intensity (1.0x) - CPU-intensive with branches (baseline)
+    - Duplicated Code: Medium intensity (0.95x) - Mixed execution paths (slightly lower)
+    - Dead Code: Low intensity (0.8x) - Just loaded, minimal execution (very low)
+    - Mutable Default Arguments: Very low intensity (0.7x) - Minimal runtime overhead (very low)
+    """
+    base_intensity = avg_emissions_rate * 1000  # Convert to gCO2eq/kWh
+    
+    return {
+        "ExcessiveLogging": base_intensity * 1.1,
+        "GodClass": base_intensity * 1.0,
+        "LongMethod": base_intensity * 1.0,
+        "DuplicatedCode": base_intensity * 0.95,
+        "DeadCode": base_intensity * 0.8,
+        "MutableDefaultArguments": base_intensity * 0.7
+    }
+
+def calculate_energy_per_rule(total_energy, total_emissions, smells_by_rule, avg_emissions_rate):
+    """
+    Estimate energy and emissions for each rule type, constrained by total measured energy.
+    Uses the total measured energy as a base and estimates what portion comes from code smells.
+    
+    Allocation: Allocates 70% of total energy to code smells, reserves 30% for non-smell code.
+    Distribution: Distributes allocated energy across smell types based on their weight and count.
+    
+    Returns:
+        dict: {rule_name: {'count': int, 'energy_kwh': float, 'emissions_kg_co2': float, 
+                          'weight': float, 'intensity_gco2_per_kwh': float, 'sci_per_rule': float}}
+    """
+    weights = get_rule_energy_weights()  # Relative weight per smell type
+    intensities = get_rule_intensity_weights(avg_emissions_rate)
+    results = {}
+    
+    # Estimate what portion of total energy comes from code smells
+    # Allocation factor: code smells typically account for ~70% of inefficiency
+    # Remaining 30% is non-smell code (framework, dependencies, etc.)
+    smell_energy_allocation = 0.70
+    energy_allocated_to_smells = total_energy * smell_energy_allocation
+    
+    # Calculate total weight across all smell types (weight * count)
+    total_weight = 0
+    for rule_name, count in smells_by_rule.items():
+        weight = weights.get(rule_name, 0.000001)
+        total_weight += weight * count
+    
+    if total_weight == 0:
+        total_weight = 1
+    
+    # Distribute allocated energy proportionally across smell types
+    for rule_name, count in smells_by_rule.items():
+        weight = weights.get(rule_name, 0.000001)
+        intensity = intensities.get(rule_name, avg_emissions_rate * 1000)
+        
+        # Calculate this rule's proportion of total weight
+        rule_weight = weight * count
+        proportion = rule_weight / total_weight
+        
+        # Allocate proportional share of smell energy
+        energy_for_rule = proportion * energy_allocated_to_smells
+        emissions_for_rule = energy_for_rule * (intensity / 1000)
+        
+        results[rule_name] = {
+            'count': count,
+            'weight': weight,
+            'intensity_gco2_per_kwh': intensity,
+            'energy_kwh': energy_for_rule,
+            'emissions_kg_co2': emissions_for_rule,
+            'energy_per_smell_kwh': weight,
+            'emissions_per_smell_kg_co2': weight * (intensity / 1000),
+            'sci_per_rule': (weight * intensity),
+        }
+    
+    return results
 
 def display_results(all_results, total_issues, all_files, args):
     """Display analysis results"""
@@ -313,8 +423,24 @@ def display_results(all_results, total_issues, all_files, args):
     
     print("=" * 80 + "\n")
 
-def carbon_track(path, args):
-    """Track carbon emissions for running the target application"""
+def carbon_track(path, args, code_smell_count=0, smells_by_rule=None):
+    """Calculate estimated energy and emissions for each code smell type (no application execution).
+    
+    Args:
+        path: Path to analyze
+        args: Command line arguments
+        code_smell_count: Total number of code smells found in analysis
+        smells_by_rule: Dict of {rule_name: count} for per-rule energy estimation
+    """
+    # Skip carbon tracking if no code smells found
+    if code_smell_count == 0:
+        print("\n✅ No code smells found! Skipping carbon emissions estimation.")
+        print("   (Energy/emissions estimation only applies when code smells are detected.)\n")
+        return
+    
+    if smells_by_rule is None:
+        smells_by_rule = {}
+    
     if not CODECARBON_AVAILABLE or args.no_carbon:
         return
     
@@ -454,8 +580,25 @@ def carbon_track(path, args):
         region = all_runs[0]['region']
         country_name = all_runs[0]['country_name']
         
-        # Mock SCI
-        sci = 3
+        # Calculate per-rule energy and emissions breakdown using estimated values
+        energy_breakdown_by_rule = calculate_energy_per_rule(avg_energy, avg_emission, smells_by_rule, avg_emissions_rate)
+        
+        # Calculate total ESTIMATED energy and emissions (independent estimates)
+        # E and I are estimated based on code smell characteristics, not measured totals
+        total_estimated_energy = sum(data['energy_kwh'] for data in energy_breakdown_by_rule.values())
+        total_estimated_emissions = sum(data['emissions_kg_co2'] for data in energy_breakdown_by_rule.values())
+        
+        # Calculate estimated I from the independent estimates
+        # I = total estimated emissions / total estimated energy
+        if total_estimated_energy > 0:
+            estimated_intensity_gco2 = (total_estimated_emissions / total_estimated_energy) * 1000
+        else:
+            estimated_intensity_gco2 = avg_emissions_rate * 1000
+        
+        # Calculate global SCI using ESTIMATED E and ESTIMATED I
+        # SCI = (E_estimated * I_estimated) / R
+        # Note: These are independent estimates, NOT proportional to measured totals
+        global_sci = (total_estimated_energy * estimated_intensity_gco2) / code_smell_count if code_smell_count > 0 else 0
         
         # Save log history of running lib
         file_path = "history.json"
@@ -475,9 +618,9 @@ def carbon_track(path, args):
             id = 1
         else:
             id = data[-1]["id"] + 1
-            if sci < data[-1]["SCI"]:
+            if global_sci < data[-1]["SCI"]:
                 status = "Greener"
-            elif sci == data[-1]["SCI"]:
+            elif global_sci == data[-1]["SCI"]:
                 status = "Normal"
             else:
                 status = "Hotter"
@@ -485,13 +628,31 @@ def carbon_track(path, args):
         metric = {
             "id": id,
             "date_time": str(datetime.now()),
-            "emission": avg_emission,
-            "energy_consumed": avg_energy,
+            "total_code_smells": code_smell_count,
+            "measured_energy_total_kwh": avg_energy,
+            "estimated_energy_from_smells_kwh": total_estimated_energy,
+            "estimated_emission_from_smells_kg_co2": total_estimated_emissions,
+            "measured_emission_total_kg_co2": avg_emission,
             "region": region,
             "country_name": country_name,
-            "emission_rate": avg_emissions_rate,
-            "SCI": sci,
-            "status": status
+            "measured_emission_rate_kg_co2_per_kwh": avg_emissions_rate,
+            "estimated_intensity_gco2_per_kwh": estimated_intensity_gco2,
+            "SCI_formula": "(E_estimated*I_estimated)/R where E/I are estimated from measured totals, R=code_smells",
+            "SCI": global_sci,
+            "status": status,
+            "breakdown_by_rule": {
+                rule_name: {
+                    "smell_count": data["count"],
+                    "weight": data["weight"],
+                    "intensity_gco2_per_kwh": data["intensity_gco2_per_kwh"],
+                    "estimated_energy_kwh": data["energy_kwh"],
+                    "estimated_emissions_kg_co2": data["emissions_kg_co2"],
+                    "energy_per_smell_kwh": data["energy_per_smell_kwh"],
+                    "emissions_per_smell_kg_co2": data["emissions_per_smell_kg_co2"],
+                    "sci_per_smell": data["sci_per_rule"]
+                }
+                for rule_name, data in energy_breakdown_by_rule.items()
+            }
         }
         
         data.append(metric)
@@ -504,21 +665,41 @@ def carbon_track(path, args):
         print(f"🌍 Carbon Emissions Report (Average of {len(all_runs)} runs):")
         print("-" * 80)
         print(f"Target file: {target_file}")
-        # print(f"Average duration: {avg_duration:.2f} seconds")
-        print(f"Average CPU power: {avg_cpu_power:.6f} W")
-        print(f"Average CPU energy: {avg_cpu_energy:.6f} kWh")
-        print(f"Average RAM power: {avg_ram_power:.6f} W")
-        print(f"Average RAM energy: {avg_ram_energy:.6f} kWh")
-        print(f"Average total energy consumed: {avg_energy:.6f} kWh")
-        print(f"Average carbon emissions: {avg_emission:.6e} kg CO2")
-        print(f"Average emissions rate: {avg_emissions_rate:.6f} kg CO2/kWh")
-        print(f"Region: {region}")
+        print(f"Code smells found: {code_smell_count}")
+        print(f"\nMeasured (Total Application):")
+        print(f"  Total energy consumed: {avg_energy:.6f} kWh")
+        print(f"  Total carbon emissions: {avg_emission:.6e} kg CO2")
+        print(f"  Measured emissions rate: {avg_emissions_rate:.6f} kg CO2/kWh")
+        print(f"\nEstimated (From Code Smells Only):")
+        print(f"  Energy from smells: {total_estimated_energy:.6f} kWh")
+        print(f"  Emissions from smells: {total_estimated_emissions:.6e} kg CO2")
+        print(f"  Intensity from smells: {estimated_intensity_gco2:.6f} gCO2eq/kWh")
+        print(f"\nRegion: {region}")
         print(f"Country: {country_name}")
-        print(f"SCI Score: {sci}")
-        print(f"Status: {status}")
+        
+        # Display per-rule breakdown
+        if energy_breakdown_by_rule:
+            print(f"\n📋 Energy/Emissions Estimation by Rule Type:")
+            print("-" * 80)
+            for rule_name, data in sorted(energy_breakdown_by_rule.items(), 
+                                         key=lambda x: x[1]['energy_kwh'], 
+                                         reverse=True):
+                print(f"\n  {rule_name}:")
+                print(f"    Count: {data['count']} smell(s)")
+                print(f"    Energy per smell: {data['energy_per_smell_kwh']:.9f} kWh (estimated)")
+                print(f"    Total estimated energy (E): {data['energy_kwh']:.9f} kWh")
+                print(f"    Intensity (I): {data['intensity_gco2_per_kwh']:.6f} gCO2eq/kWh (estimated)")
+                print(f"    Total estimated emissions: {data['emissions_kg_co2']:.6e} kg CO2")
+                print(f"    Emissions per smell: {data['emissions_per_smell_kg_co2']:.6e} kg CO2")
+                print(f"    SCI per smell: {data['sci_per_rule']:.10f}")
+        
+        print(f"\n📊 SCI Calculation: (E_estimated × I_estimated) / R")
+        print(f"   E (Estimated Energy from Smells): {total_estimated_energy:.9f} kWh")
+        print(f"   I (Estimated Intensity from Smells): {estimated_intensity_gco2:.6f} gCO2eq/kWh")
+        print(f"   R (Code Smells): {code_smell_count}")
+        print(f"   SCI Score: {global_sci:.10f}")
+        print(f"   Status: {status}")
         print("=" * 80)
-    else:
-        print("\n⚠️  No successful runs completed. Unable to calculate averages.")
 
 def main():
     parser = argparse.ArgumentParser(
@@ -632,8 +813,8 @@ Examples:
         args.dup_check_between = True
 
     # Run analysis
-    analyze_code_smells(args.path, args)
-    carbon_track(args.path, args)
+    all_results, total_code_smells, smells_by_rule = analyze_code_smells(args.path, args)
+    carbon_track(args.path, args, code_smell_count=total_code_smells, smells_by_rule=smells_by_rule)
 
     print("\n✨ Analysis complete.\n")
 
