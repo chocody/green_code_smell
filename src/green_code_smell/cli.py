@@ -39,6 +39,111 @@ except ImportError:
     print("⚠️  Warning: codecarbon not installed. Carbon tracking disabled.")
     print("   Install with: pip install codecarbon\n")
 
+def calculate_cosmic_cfp(file_path):
+    """
+    Calculate COSMIC Function Points (CFP) from Python source code.
+    
+    COSMIC measures functional size by counting Data Movements:
+    - Entry (E): Data movement from user to functional process
+    - Exit (X): Data movement from functional process to user
+    - Read (R): Data movement from persistent storage to functional process
+    - Write (W): Data movement from functional process to persistent storage
+    
+    CFP = E + X + R + W
+    
+    Args:
+        file_path: Path to Python file to analyze
+        
+    Returns:
+        int: Total COSMIC Function Points (minimum 1)
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        tree = ast.parse(content)
+        
+        entry_count = 0  # E
+        exit_count = 0   # X
+        read_count = 0   # R
+        write_count = 0  # W
+        
+        # Keywords and patterns for identifying data movements
+        entry_keywords = ['input', 'raw_input', 'sys.stdin', 'click.prompt', 'argparse', 
+                         'request.get', 'request.post', 'request.form', 'request.args',
+                         'request.json', 'request.data']
+        
+        exit_keywords = ['print', 'sys.stdout.write', 'response', 'return', 'render',
+                        'jsonify', 'redirect', 'send_file']
+        
+        read_keywords = ['open', 'read', 'load', 'get', 'fetch', 'query', 'select',
+                        'find', 'find_one', 'execute', 'fetchall', 'fetchone',
+                        'cursor', 'session.query', '.objects.get', '.objects.filter',
+                        'redis.get', 'cache.get', 'mongo', 'mysql', 'postgres',
+                        'sqlite3', 'json.load', 'pickle.load', 'csv.reader']
+        
+        write_keywords = ['write', 'save', 'insert', 'update', 'delete', 'create',
+                         'commit', 'add', 'put', 'set', 'session.add', '.save()',
+                         'redis.set', 'cache.set', 'json.dump', 'pickle.dump',
+                         'csv.writer', 'to_sql', 'to_csv']
+        
+        for node in ast.walk(tree):
+            node_str = ast.unparse(node) if hasattr(ast, 'unparse') else ''
+            
+            # Count Entry movements (user input operations)
+            if isinstance(node, ast.Call):
+                func_name = ''
+                if isinstance(node.func, ast.Name):
+                    func_name = node.func.id
+                elif isinstance(node.func, ast.Attribute):
+                    func_name = node.func.attr
+                
+                # Check for input operations
+                if any(keyword in func_name.lower() or keyword in node_str.lower() 
+                       for keyword in entry_keywords):
+                    entry_count += 1
+                
+                # Check for output operations (Exit)
+                if any(keyword in func_name.lower() or keyword in node_str.lower() 
+                       for keyword in exit_keywords):
+                    exit_count += 1
+                
+                # Check for read operations from persistent storage
+                if any(keyword in func_name.lower() or keyword in node_str.lower() 
+                       for keyword in read_keywords):
+                    read_count += 1
+                
+                # Check for write operations to persistent storage
+                if any(keyword in func_name.lower() or keyword in node_str.lower() 
+                       for keyword in write_keywords):
+                    write_count += 1
+            
+            # Count explicit return statements as Exit
+            if isinstance(node, ast.Return) and node.value is not None:
+                exit_count += 1
+            
+            # Count file operations with mode indicators
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name) and node.func.id == 'open':
+                    if len(node.args) >= 2:
+                        mode_arg = node.args[1]
+                        if isinstance(mode_arg, ast.Constant):
+                            mode = str(mode_arg.value)
+                            if 'r' in mode:
+                                read_count += 1
+                            if 'w' in mode or 'a' in mode:
+                                write_count += 1
+        
+        # Calculate total COSMIC Function Points
+        cfp = entry_count + exit_count + read_count + write_count
+        
+        # Ensure minimum of 1 CFP (avoid division by zero in SCI calculation)
+        return max(cfp, 1)
+        
+    except Exception as e:
+        print(f"⚠️  Warning: Could not calculate COSMIC CFP for {file_path}: {e}")
+        return 1  # Return minimum value on error
+
 def get_python_files(path):
     """Get all Python files from path (file or directory)"""
     path = Path(path)
@@ -454,8 +559,28 @@ def carbon_track(path, args):
         region = all_runs[0]['region']
         country_name = all_runs[0]['country_name']
         
-        # Mock SCI
-        sci = 3
+        # Calculate SCI (Software Carbon Intensity) = E * I / R
+        # Where:
+        # E = Total energy consumed (kWh)
+        # I = Carbon intensity of energy (kg CO2/kWh)  
+        # R = COSMIC Function Points (functional size measurement)
+        # SCI unit: g CO2 per CFP
+        
+        # Energy conversion
+        energy_in_wh = avg_energy * 1000  # Convert kWh to Wh
+        
+        # Carbon intensity (emissions rate in kg CO2/kWh)
+        carbon_intensity = avg_emissions_rate
+        
+        # Calculate COSMIC Function Points from the target file
+        cosmic_cfp = calculate_cosmic_cfp(target_file)
+        
+        # SCI Calculation: (energy_Wh × intensity_kg_CO2_per_kWh × 1000) / CFP
+        # Result: grams CO2 per COSMIC Function Point
+        if cosmic_cfp > 0:
+            sci = (energy_in_wh * carbon_intensity * 1000) / cosmic_cfp
+        else:
+            sci = 0
         
         # Save log history of running lib
         file_path = "history.json"
@@ -490,6 +615,7 @@ def carbon_track(path, args):
             "region": region,
             "country_name": country_name,
             "emission_rate": avg_emissions_rate,
+            "cosmic_cfp": cosmic_cfp,
             "SCI": sci,
             "status": status
         }
@@ -505,16 +631,18 @@ def carbon_track(path, args):
         print("-" * 80)
         print(f"Target file: {target_file}")
         # print(f"Average duration: {avg_duration:.2f} seconds")
-        print(f"Average CPU power: {avg_cpu_power:.6f} W")
-        print(f"Average CPU energy: {avg_cpu_energy:.6f} kWh")
-        print(f"Average RAM power: {avg_ram_power:.6f} W")
-        print(f"Average RAM energy: {avg_ram_energy:.6f} kWh")
+        # print(f"Average CPU power: {avg_cpu_power:.6f} W")
+        # print(f"Average CPU energy: {avg_cpu_energy:.6f} kWh")
+        # print(f"Average RAM power: {avg_ram_power:.6f} W")
+        # print(f"Average RAM energy: {avg_ram_energy:.6f} kWh")
         print(f"Average total energy consumed: {avg_energy:.6f} kWh")
         print(f"Average carbon emissions: {avg_emission:.6e} kg CO2")
         print(f"Average emissions rate: {avg_emissions_rate:.6f} kg CO2/kWh")
         print(f"Region: {region}")
         print(f"Country: {country_name}")
-        print(f"SCI Score: {sci}")
+        print("-" * 80)
+        print(f"COSMIC Function Points (CFP): {cosmic_cfp}")
+        print(f"SCI Score: {sci:.6f} g CO2 per CFP")
         print(f"Status: {status}")
         print("=" * 80)
     else:
