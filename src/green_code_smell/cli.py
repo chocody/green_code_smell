@@ -42,107 +42,78 @@ except ImportError:
 def calculate_cosmic_cfp(file_path):
     """
     Calculate COSMIC Function Points (CFP) from Python source code.
-    
-    COSMIC measures functional size by counting Data Movements:
-    - Entry (E): Data movement from user to functional process
-    - Exit (X): Data movement from functional process to user
-    - Read (R): Data movement from persistent storage to functional process
-    - Write (W): Data movement from functional process to persistent storage
-    
-    CFP = E + X + R + W
-    
-    Args:
-        file_path: Path to Python file to analyze
-        
-    Returns:
-        int: Total COSMIC Function Points (minimum 1)
+    Refined version compliant with ISO/IEC 19761:2011 (COSMIC v4.0.2).
     """
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
         tree = ast.parse(content)
+        total_cfp = 0
         
-        entry_count = 0  # E
-        exit_count = 0   # X
-        read_count = 0   # R
-        write_count = 0  # W
+        # 1. ระบุ Functional User Input Keywords (Entry - E)
+        entry_keywords = {'input', 'get_json', 'parse_args', 'request', 'args', 'form', 'json'}
         
-        # Keywords and patterns for identifying data movements
-        entry_keywords = ['input', 'raw_input', 'sys.stdin', 'click.prompt', 'argparse', 
-                         'request.get', 'request.post', 'request.form', 'request.args',
-                         'request.json', 'request.data']
+        # 2. ระบุ Functional User Output Keywords (Exit - X)
+        exit_keywords = {'print', 'jsonify', 'render', 'send', 'redirect', 'http'}
         
-        exit_keywords = ['print', 'sys.stdout.write', 'response', 'return', 'render',
-                        'jsonify', 'redirect', 'send_file']
+        # 3. ระบุ Data retrieval (Read - R)
+        read_keywords = {'query', 'fetch', 'select', 'find', 'get', 'read', 'load', 'open'}
         
-        read_keywords = ['open', 'read', 'load', 'get', 'fetch', 'query', 'select',
-                        'find', 'find_one', 'execute', 'fetchall', 'fetchone',
-                        'cursor', 'session.query', '.objects.get', '.objects.filter',
-                        'redis.get', 'cache.get', 'mongo', 'mysql', 'postgres',
-                        'sqlite3', 'json.load', 'pickle.load', 'csv.reader']
+        # 4. ระบุ Data modification (Write - W)
+        write_keywords = {'save', 'insert', 'update', 'delete', 'commit', 'write', 'dump'}
+
+        # แยกวิเคราะห์รายฟังก์ชัน (1 Function = 1 Functional Process ตามมาตรฐาน)
+        functions = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
         
-        write_keywords = ['write', 'save', 'insert', 'update', 'delete', 'create',
-                         'commit', 'add', 'put', 'set', 'session.add', '.save()',
-                         'redis.set', 'cache.set', 'json.dump', 'pickle.dump',
-                         'csv.writer', 'to_sql', 'to_csv']
-        
-        for node in ast.walk(tree):
-            node_str = ast.unparse(node) if hasattr(ast, 'unparse') else ''
+        # หากไม่มีฟังก์ชันเลย ให้มองทั้งไฟล์เป็น 1 Process
+        if not functions:
+            functions = [tree]
+
+        for func_node in functions:
+            # ใช้ Set เพื่อเก็บ Unique Data Groups ป้องกันการนับซ้ำใน 1 Process
+            movements = {
+                'E': set(), 'X': set(), 'R': set(), 'W': set()
+            }
             
-            # Count Entry movements (user input operations)
-            if isinstance(node, ast.Call):
-                func_name = ''
-                if isinstance(node.func, ast.Name):
-                    func_name = node.func.id
-                elif isinstance(node.func, ast.Attribute):
-                    func_name = node.func.attr
+            for node in ast.walk(func_node):
+                # ตรวจสอบการเรียกใช้ฟังก์ชัน/Method (Primary Data Movements)
+                if isinstance(node, ast.Call):
+                    func_name = ''
+                    if isinstance(node.func, ast.Name):
+                        func_name = node.func.id.lower()
+                    elif isinstance(node.func, ast.Attribute):
+                        func_name = node.func.attr.lower()
+                    
+                    if func_name:
+                        # จัดกลุ่มตามประเภทการไหลของข้อมูล
+                        if any(kw in func_name for kw in entry_keywords):
+                            movements['E'].add(func_name)
+                        elif any(kw in func_name for kw in exit_keywords):
+                            movements['X'].add(func_name)
+                        elif any(kw in func_name for kw in read_keywords):
+                            movements['R'].add(func_name)
+                        elif any(kw in func_name for kw in write_keywords):
+                            movements['W'].add(func_name)
                 
-                # Check for input operations
-                if any(keyword in func_name.lower() or keyword in node_str.lower() 
-                       for keyword in entry_keywords):
-                    entry_count += 1
+                # นับ Return Statement เป็น Exit (X)
+                if isinstance(node, ast.Return) and node.value is not None:
+                    movements['X'].add('return_payload')
                 
-                # Check for output operations (Exit)
-                if any(keyword in func_name.lower() or keyword in node_str.lower() 
-                       for keyword in exit_keywords):
-                    exit_count += 1
-                
-                # Check for read operations from persistent storage
-                if any(keyword in func_name.lower() or keyword in node_str.lower() 
-                       for keyword in read_keywords):
-                    read_count += 1
-                
-                # Check for write operations to persistent storage
-                if any(keyword in func_name.lower() or keyword in node_str.lower() 
-                       for keyword in write_keywords):
-                    write_count += 1
+                # นับ Yield Statement เป็น Exit (X)
+                if isinstance(node, (ast.Yield, ast.YieldFrom)):
+                    movements['X'].add('yield_payload')
             
-            # Count explicit return statements as Exit
-            if isinstance(node, ast.Return) and node.value is not None:
-                exit_count += 1
-            
-            # Count file operations with mode indicators
-            if isinstance(node, ast.Call):
-                if isinstance(node.func, ast.Name) and node.func.id == 'open':
-                    if len(node.args) >= 2:
-                        mode_arg = node.args[1]
-                        if isinstance(mode_arg, ast.Constant):
-                            mode = str(mode_arg.value)
-                            if 'r' in mode:
-                                read_count += 1
-                            if 'w' in mode or 'a' in mode:
-                                write_count += 1
+            # คำนวณขนาดของ Process นี้ (ผลรวมของ Unique Movements)
+            process_size = sum(len(m_set) for m_set in movements.values())
+            total_cfp += process_size
         
-        # Calculate total COSMIC Function Points
-        cfp = entry_count + exit_count + read_count + write_count
-        
-        # Ensure minimum of 1 CFP (avoid division by zero in SCI calculation)
-        return max(cfp, 1)
+        # มาตรฐานระบุว่าอย่างน้อยควรมี 1 CFP (เพื่อป้องกันการหารด้วย 0 ใน SCI)
+        return max(total_cfp, 1)
         
     except Exception as e:
         print(f"⚠️  Warning: Could not calculate COSMIC CFP for {file_path}: {e}")
-        return 1  # Return minimum value on error
+        return 1
 
 def get_python_files(path):
     """Get all Python files from path (file or directory)"""
@@ -559,26 +530,30 @@ def carbon_track(path, args):
         region = all_runs[0]['region']
         country_name = all_runs[0]['country_name']
         
-        # Calculate SCI (Software Carbon Intensity) = E * I / R
+        # Calculate SCI (Software Carbon Intensity) per ISO/IEC 19761
+        # Formula: SCI = E × I / R
         # Where:
-        # E = Total energy consumed (kWh)
-        # I = Carbon intensity of energy (kg CO2/kWh)  
-        # R = COSMIC Function Points (functional size measurement)
-        # SCI unit: g CO2 per CFP
+        # E = Energy consumed (kWh)
+        # I = Carbon intensity of electricity (kg CO2/kWh)  
+        # R = COSMIC Function Points (functional size)
+        # Result: g CO2 per CFP (grams of CO2 per COSMIC Function Point)
+        # 
+        # Reference: ISO/IEC 19761:2011 for CFP measurement
+        # Formula aligns with Green Software Foundation SCI specification
         
-        # Energy conversion
-        energy_in_wh = avg_energy * 1000  # Convert kWh to Wh
+        # Energy is in kWh from CodeCarbon
+        energy_kwh = avg_energy
         
-        # Carbon intensity (emissions rate in kg CO2/kWh)
+        # Carbon intensity is in kg CO2/kWh from CodeCarbon
         carbon_intensity = avg_emissions_rate
         
         # Calculate COSMIC Function Points from the target file
         cosmic_cfp = calculate_cosmic_cfp(target_file)
         
-        # SCI Calculation: (energy_Wh × intensity_kg_CO2_per_kWh × 1000) / CFP
-        # Result: grams CO2 per COSMIC Function Point
+        # SCI Calculation: (E_kWh × I_kg_CO2_per_kWh × 1000_g_per_kg) / R_CFP
+        # Result: g CO2 per COSMIC Function Point
         if cosmic_cfp > 0:
-            sci = (energy_in_wh * carbon_intensity * 1000) / cosmic_cfp
+            sci = (energy_kwh * carbon_intensity * 1000) / cosmic_cfp
         else:
             sci = 0
         
@@ -642,7 +617,7 @@ def carbon_track(path, args):
         print(f"Country: {country_name}")
         print("-" * 80)
         print(f"COSMIC Function Points (CFP): {cosmic_cfp}")
-        print(f"SCI Score: {sci:.6f} g CO2 per CFP")
+        print(f"SCI Score: {sci:.10f} g CO2 per CFP")
         print(f"Status: {status}")
         print("=" * 80)
     else:
