@@ -56,6 +56,7 @@ class DuplicatedCodeRule:
                     functions.append({
                         'name': node.name,
                         'lineno': node.lineno,
+                        'end_lineno': node.end_lineno,
                         'statements': len(node.body),
                         'normalized': normalized,
                         'body': node.body
@@ -149,6 +150,7 @@ class DuplicatedCodeRule:
                     issues.append({
                         "rule": self.name,
                         "lineno": group[0]['lineno'],
+                        "end_lineno": group[0]['end_lineno'],
                         "message": f"Similar function implementations (similarity: {avg_similarity:.1%}): {', '.join(func_names)}. Consider refactoring into a single function."
                     })
                     
@@ -197,6 +199,7 @@ class DuplicatedCodeRule:
                         issues.append({
                             "rule": self.name,
                             "lineno": block1['start_line'],
+                            "end_lineno": block1['end_line'],
                             "message": f"Duplicated code block in function '{func['name']}' (similarity: {similarity:.1%}): lines {block1['start_line']}-{block1['end_line']} and {block2['start_line']}-{block2['end_line']} ({block1['statements']} statements). Consider extracting to a separate function."
                         })
                         reported_pairs.add(pair_key)

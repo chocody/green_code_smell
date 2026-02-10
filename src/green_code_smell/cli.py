@@ -40,36 +40,6 @@ except ImportError:
     print("   Install with: pip install codecarbon\n")
 
 
-def count_lines_of_code(file_path):
-    """
-    Count total lines of code in a file (excluding blank lines and comments)
-    """
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        
-        code_lines = 0
-        for line in lines:
-            stripped = line.strip()
-            # Count non-empty lines that aren't just comments
-            if stripped and not stripped.startswith('#'):
-                code_lines += 1
-        
-        return code_lines
-    except:
-        return 0
-
-
-def count_total_lines_in_project(python_files):
-    """
-    Count total lines of code in all Python files
-    """
-    total_lines = 0
-    for file_path in python_files:
-        total_lines += count_lines_of_code(file_path)
-    return total_lines
-
-
 def calculate_green_metrics(
     energy_consumed_kwh,
     emissions_rate_grams_per_kwh,
@@ -94,21 +64,18 @@ def calculate_green_metrics(
     operational_emissions = energy_consumed_kwh * emissions_rate_grams_per_kwh
     total_emissions = operational_emissions + embodied_carbon
     
-    # Metric 1: SCI per Line of Code (PRIMARY METRIC)
-    # "How much carbon per line of code?"
-    sci_per_line = total_emissions / total_lines_of_code if total_lines_of_code > 0 else 0
+    # Metric 1: SCI per LOC of code smells
+    if total_lines_of_code > 0:
+        sci_per_line = total_emissions / total_lines_of_code
+    else:
+        sci_per_line = 0
 
-    # Metric 2: SCI per execution (SUB METRIC)
-    # "How much carbon per one execution?"
-    sci_per_exec = total_emissions / 1
-
-    # Metric 3: SCI per green code smells (todo)
+    print("total loc eiei: ", total_lines_of_code)
     
     return {
         "total_emissions_gCO2eq": total_emissions,
-        "lines_of_code": total_lines_of_code,
+        "total_loc_code_smells": total_lines_of_code,
         "sci_gCO2eq_per_line": sci_per_line,
-        "sci_gCO2eq_per_exec": sci_per_exec,
     }
 
 
@@ -125,6 +92,87 @@ def determine_green_status(current_sci_per_exec, previous_sci_per_exec):
         return "Hotter ⚠️"
     else:
         return "Normal"
+
+def impact_analysis(data, avg_emission, total_loc):
+    """
+    Display code smell LOC vs carbon emission analysis comparing previous and current runs.
+    
+    Args:
+        data: List of historical metric entries
+        avg_emission: Current average carbon emission (kg CO2)
+        total_loc: Current total lines of code smells
+    """
+    print(f"\n📊 Code Smell LOC vs Carbon Emission Analysis")
+    if len(data) >= 2:
+        previous_emission = data[-2].get("emission_kg")
+        previous_loc = data[-2].get("lines_of_code", 0)
+        current_loc = total_loc if total_loc else 0
+        
+        carbon_diff = previous_emission - avg_emission
+        loc_diff = previous_loc - current_loc
+        
+        # Display previous and current runs
+        print(f"\n   Previous Run:")
+        print(f"      Carbon Emission: {previous_emission:.6e} kg CO2")
+        print(f"      Code Smell LOC:  {previous_loc} LOC")
+        if previous_loc > 0:
+            print(f"      Carbon per LOC:  {previous_emission / previous_loc:.6e} kg CO2/LOC")
+        
+        print(f"\n   Current Run:")
+        print(f"      Carbon Emission: {avg_emission:.6e} kg CO2")
+        print(f"      Code Smell LOC:  {current_loc} LOC")
+        if current_loc > 0:
+            print(f"      Carbon per LOC:  {avg_emission / current_loc:.6e} kg CO2/LOC")
+        else:
+            print(f"      ✅ All code smells fixed! (0 LOC)")
+        
+        # Determine impact message
+        print(f"\n   Impact Analysis:")
+        
+        # LOC change status
+        if loc_diff > 0:
+            loc_status = f"✅ Code smells reduced by {loc_diff} LOC"
+        elif loc_diff < 0:
+            loc_status = f"⚠️  Code smells increased by {abs(loc_diff)} LOC"
+        else:
+            loc_status = f"➡️  Code smell LOC unchanged ({current_loc} LOC)"
+        
+        # Carbon change status
+        if carbon_diff > 0:
+            carbon_status = f"✅ Carbon emission decreased by {carbon_diff:.6e} kg CO2"
+        elif carbon_diff < 0:
+            carbon_status = f"⚠️  Carbon emission increased by {abs(carbon_diff):.6e} kg CO2"
+        else:
+            carbon_status = f"➡️  Carbon emission unchanged"
+        
+        print(f"      {loc_status}")
+        print(f"      {carbon_status}")
+        
+        # Calculate and display correlation metric
+        if loc_diff != 0 and carbon_diff != 0:
+            # Both changed - show correlation
+            if (loc_diff > 0 and carbon_diff > 0) or (loc_diff < 0 and carbon_diff < 0):
+                # Positive correlation: less LOC = less carbon, or more LOC = more carbon
+                metric = abs(carbon_diff) / abs(loc_diff)
+                if loc_diff > 0:
+                    print(f"      📉 Carbon saved per LOC removed: {metric:.6e} kg CO2/LOC")
+                    print(f"      💡 Less code smell = Less carbon emission!")
+                else:
+                    print(f"      📈 Carbon increase per LOC added: {metric:.6e} kg CO2/LOC")
+                    print(f"      💡 More code smell = More carbon emission")
+            else:
+                # Negative correlation - other factors involved
+                print(f"      ℹ️  Carbon change may be due to other factors")
+        elif loc_diff == 0 and carbon_diff != 0:
+            print(f"      ℹ️  Carbon change from other optimizations/factors")
+    else:
+        print(f"\n   Current Run (Initial):")
+        print(f"      Carbon Emission: {avg_emission:.6e} kg CO2")
+        print(f"      Code Smell LOC:  {total_loc if total_loc else 0} LOC")
+        if total_loc and total_loc > 0:
+            print(f"      Carbon per LOC:  {avg_emission / total_loc:.6e} kg CO2/LOC")
+        print(f"      ℹ️  No previous run to compare")
+
 
 def get_python_files(path):
     """Get all Python files from path (file or directory)"""
@@ -303,6 +351,22 @@ def setup_rules(args):
     
     return rules
 
+def count_total_loc_code_smells(all_results):
+    """Count total lines of code involved in code smells from analysis results"""
+    total_loc = 0
+    
+    for issues in all_results.values():
+        for issue in issues:
+            if issue.get('rule') == 'MututableDefaultArguments':
+                total_loc += 1
+                continue  # Skip mutable default arguments for LOC count because they are single line issues
+            lineno = issue.get('lineno')
+            end_lineno = issue.get('end_lineno', lineno)
+            if lineno and end_lineno:
+                total_loc += (end_lineno - lineno + 1)
+    
+    return total_loc
+
 def analyze_code_smells(path, args):
     """Analyze code smells in file or project"""
     python_files = get_python_files(path)
@@ -335,10 +399,12 @@ def analyze_code_smells(path, args):
         if all_issues:
             all_results[python_files[0]] = all_issues
         total_issues = len(all_issues)
+
+    total_loc = count_total_loc_code_smells(all_results)
     
     display_results(all_results, total_issues, python_files, args)
     
-    return all_results
+    return all_results, total_loc
 
 def display_results(all_results, total_issues, all_files, args):
     """Display analysis results"""
@@ -380,7 +446,7 @@ def display_results(all_results, total_issues, all_files, args):
             print(f"\n  {rule_name} ({len(rule_issues)} issue(s)):")
             for issue in rule_issues:
                 print(f"    Line {issue['lineno']}: {issue['message']}")
-    
+
     # Summary by rule type
     print("\n" + "=" * BREAK_LINE_NO)
     print("📊 Summary by Rule:")
@@ -398,7 +464,7 @@ def display_results(all_results, total_issues, all_files, args):
     print("=" * BREAK_LINE_NO + "\n")
 
 
-def carbon_track(path, args, python_files):
+def carbon_track(path, args, total_loc=0):
     """Track carbon emissions for running the target application"""
     if not CODECARBON_AVAILABLE or args.no_carbon:
         return
@@ -544,8 +610,6 @@ def carbon_track(path, args, python_files):
         # Convert emissions_rate from kg CO2/kWs to gCO2eq/kWh
         emissions_rate_grams = avg_emissions_rate * SEC_HOUR * KG_GRAMS
         
-        # Count total lines of code in the project
-        total_loc = count_total_lines_in_project(python_files)
         
         # Calculate green metrics using SCI formula with LOC as functional unit
         green_metrics = calculate_green_metrics(
@@ -572,19 +636,19 @@ def carbon_track(path, args, python_files):
         if len(data) == 0:
             status = "Initial"
             id_num = 1
-            previous_sci_per_exec = None
+            previous_sci_per_loc = None
         else:
             id_num = data[-1]["id"] + 1
-            previous_sci_per_exec = data[-1].get("sci_gCO2eq_per_exec")
+            previous_sci_per_loc = data[-1].get("sci_gCO2eq_per_line")
             status = determine_green_status(
-                green_metrics["sci_gCO2eq_per_exec"],
-                previous_sci_per_exec
+                green_metrics["sci_gCO2eq_per_line"],
+                previous_sci_per_loc
             )
         
         # Calculate improvement percentage
-        if previous_sci_per_exec and previous_sci_per_exec > 0:
-            improvement = ((previous_sci_per_exec - green_metrics["sci_gCO2eq_per_exec"]) 
-                          / previous_sci_per_exec) * 100
+        if previous_sci_per_loc and previous_sci_per_loc > 0:
+            improvement = ((previous_sci_per_loc - green_metrics["sci_gCO2eq_per_line"]) 
+                          / previous_sci_per_loc) * 100
         else:
             improvement = None
 
@@ -600,9 +664,8 @@ def carbon_track(path, args, python_files):
             "country_name": country_name,
             "emissions_rate_gCO2eq_per_kWh": emissions_rate_grams,
             "total_emissions_gCO2eq": green_metrics["total_emissions_gCO2eq"],
-            "lines_of_code": green_metrics["lines_of_code"],
+            "lines_of_code": green_metrics["total_loc_code_smells"],
             "sci_gCO2eq_per_line": green_metrics["sci_gCO2eq_per_line"],
-            "sci_gCO2eq_per_exec": green_metrics["sci_gCO2eq_per_exec"],
             "status": status,
             "improvement_percent": improvement
         }
@@ -621,27 +684,27 @@ def carbon_track(path, args, python_files):
         print(f"  Duration: {duration:.2f} seconds")
         print(f"\n⚡ Energy & Emissions:")
         print(f"  Total energy consumed: {avg_energy:.6f} kWh")
-        print(f"  Carbon emissions: {avg_emission:.6e} kg CO2 ({green_metrics['total_emissions_gCO2eq']:.2f} gCO2eq)")
+        print(f"  Carbon emissions: {avg_emission:.6e} kg CO2")
         print(f"  Emissions rate: {emissions_rate_grams:.2f} gCO2eq/kWh")
         print(f"  Region: {region}")
         print(f"  Country: {country_name}")
         print(f"\n📊 Code Metrics:")
-        print(f"  Total lines of code: {green_metrics['lines_of_code']} LOC")
+        print(f"  Total lines of code: {green_metrics['total_loc_code_smells']} LOC")
         print(f"\n🌱 SCI Metrics (Software Carbon Intensity):")
-        print(f"  ├─ Per line of code: {green_metrics['sci_gCO2eq_per_line']:.2f}e-09 gCO2eq/LOC")
+        print(f"  ├─ Per line of code: {green_metrics['sci_gCO2eq_per_line']:.8f} gCO2eq/LOC")
         print(f"  │  ℹ️  Lower is greener! Shorter code = lower carbon footprint")
-        print(f"  │")
-        print(f"  └─ Per one execution: {green_metrics['sci_gCO2eq_per_exec']:.2f}e-09 gCO2eq/Execution")
-        print(f"     ℹ️  Average carbon footprint per execution")
+        print(f"  └─")
         
-        print(f"\n📈 Status: {status}")
-        if improvement is not None:
-            print(f"   Previous: {previous_sci_per_exec:6e}")
-            print(f"   Now: {green_metrics["sci_gCO2eq_per_exec"]:6e}")
-            if improvement > 0:
-                print(f"   Decrease Carbon emission around: {abs(improvement):.2f}%")
-            else:
-                print(f"   Increase Carbon emission around: {abs(improvement):.2f}%")
+        # print(f"\n📈 Status: {status}")
+        # if improvement is not None:
+        #     print(f"   Previous: {previous_sci_per_loc:6e}")
+        #     print(f"   Now: {green_metrics["sci_gCO2eq_per_line"]:6e}")
+        #     if improvement > 0:
+        #         print(f"   Decrease Carbon emission around: {abs(improvement):.2f}%")
+        #     else:
+        #         print(f"   Increase Carbon emission around: {abs(improvement):.2f}%")
+
+        impact_analysis(data, avg_emission, total_loc)
         
         print("=" * BREAK_LINE_NO)
 
@@ -756,13 +819,10 @@ Examples:
     else:
         args.dup_check_within = True
         args.dup_check_between = True
-
-    # Get Python files first (needed for carbon tracking)
-    python_files = get_python_files(args.path)
     
     # Run analysis
-    analyze_code_smells(args.path, args)
-    carbon_track(args.path, args, python_files)
+    all_result, total_loc = analyze_code_smells(args.path, args)
+    carbon_track(args.path, args, total_loc)
 
     print("\n✨ Analysis complete.\n")
 
