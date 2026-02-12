@@ -69,8 +69,6 @@ def calculate_green_metrics(
         sci_per_line = total_emissions / total_lines_of_code
     else:
         sci_per_line = 0
-
-    print("total loc eiei: ", total_lines_of_code)
     
     return {
         "total_emissions_gCO2eq": total_emissions,
@@ -364,6 +362,7 @@ def count_total_loc_code_smells(all_results):
             end_lineno = issue.get('end_lineno', lineno)
             if lineno and end_lineno:
                 total_loc += (end_lineno - lineno + 1)
+            # print(f"Debug: Issue {issue.get('rule')} loc of code smells: {end_lineno - lineno + 1}")
     
     return total_loc
 
