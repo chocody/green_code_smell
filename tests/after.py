@@ -120,8 +120,7 @@ def main() -> None:
     print(company.find_employees(role=Role.INTERN))
     company.employees[0].pay()
     company.employees[0].take_a_holiday()
-    company.employees[0].payout_a_holiday()
-
+    company.employees[1].payout_a_holiday()
 
 if __name__ == "__main__":
     main()
