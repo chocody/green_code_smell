@@ -58,7 +58,7 @@ class DeadCodeRule:
         
         # Step 2: Check for unused definitions across files
         for file_path, definitions in self.all_definitions.items():
-            for name, (def_type, lineno) in definitions.items():
+            for name, (def_type, lineno, end_lineno) in definitions.items():
                 # Skip special names
                 if name.startswith('_'):
                     continue
@@ -68,6 +68,7 @@ class DeadCodeRule:
                     all_issues.append({
                         "rule": self.name,
                         "lineno": lineno,
+                        "end_lineno": end_lineno,
                         "file": file_path,  # ✅ Added file field
                         "message": f"Unused {def_type} '{name}' is never referenced. Suggest removing it."
                     })
@@ -86,22 +87,22 @@ class DeadCodeRule:
     
     def _collect_definitions(self, tree):
         """Collect all function, class, and variable definitions."""
-        definitions = {}  # {name: (type, lineno)}
+        definitions = {}  # {name: (type, lineno, end_lineno)}
         
         for node in ast.walk(tree):
             # Function definitions
             if isinstance(node, ast.FunctionDef):
-                definitions[node.name] = ('function', node.lineno)
+                definitions[node.name] = ('function', node.lineno, node.end_lineno)
             
             # Class definitions
             elif isinstance(node, ast.ClassDef):
-                definitions[node.name] = ('class', node.lineno)
+                definitions[node.name] = ('class', node.lineno, node.end_lineno)
             
             # Variable assignments at module/class level
             elif isinstance(node, ast.Assign):
                 for target in node.targets:
                     if isinstance(target, ast.Name):
-                        definitions[target.id] = ('variable', target.lineno)
+                        definitions[target.id] = ('variable', target.lineno, target.end_lineno)
         
         return definitions
     
@@ -162,7 +163,7 @@ class DeadCodeRule:
     
     def _check_unused(self, defined, used, imports, issues):
         """Check for unused variables, functions, and classes."""
-        for name, (def_type, lineno) in defined.items():
+        for name, (def_type, lineno, end_lineno) in defined.items():
             # Skip special names (like __init__, __main__)
             if name.startswith('_'):
                 continue
@@ -176,6 +177,7 @@ class DeadCodeRule:
                 issues.append({
                     "rule": self.name,
                     "lineno": lineno,
+                    "end_lineno": end_lineno,
                     "message": f"Unused {def_type} '{name}' is never referenced. Suggest removing it."
                 })
     
@@ -216,6 +218,7 @@ class DeadCodeRule:
                 issue = {
                     "rule": self.name,
                     "lineno": stmt.lineno,
+                    "end_lineno": stmt.end_lineno,
                     "message": f"Unreachable code after statement at line {terminator_line}. Consider removing it."
                 }
                 # Add file field if in project mode
