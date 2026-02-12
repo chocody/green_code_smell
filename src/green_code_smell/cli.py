@@ -39,7 +39,7 @@ except ImportError:
     print("⚠️  Warning: codecarbon not installed. Carbon tracking disabled.")
     print("   Install with: pip install codecarbon\n")
 
-def calculate_cosmic_cfp(file_path):
+def calculate_cosmic_cfp(file_path): # TODO: Can we not parse file again? using the same tree that already parsed?
     """
     Calculate COSMIC Function Points (CFP) from Python source code.
     Compliant with ISO/IEC 19761:2011 (COSMIC v4.0.2).
@@ -57,6 +57,8 @@ def calculate_cosmic_cfp(file_path):
         tree = ast.parse(content)
         total_cfp = 0
         
+        # TODO: Improve by move or variable in constans file
+
         # Database operations (persistent storage access)
         db_read_patterns = {
             'query', 'select', 'find', 'fetch', 'get', 'load', 'filter',
@@ -115,6 +117,8 @@ def calculate_cosmic_cfp(file_path):
                                 movements['R'] += 1
                                 continue
                         
+                        # TODO: maybe separate to sub function for clarity
+                        
                         if func_name in file_read_patterns or 'read' in func_name:
                             movements['R'] += 1
                             continue
@@ -160,6 +164,7 @@ def calculate_cosmic_cfp(file_path):
         print(f"⚠️  Warning: Could not calculate COSMIC CFP for {file_path}: {e}")
         return 1
 
+# TODO: Decide what metrics to use? SCI per LOC? SCI per CFP? SCI per LOC code smells? Carbon reduction per LOC of code smells reduced?
 def calculate_green_metrics(
     energy_consumed_kwh,
     emissions_rate_grams_per_kwh,
@@ -211,6 +216,7 @@ def determine_green_status(current_sci_per_exec, previous_sci_per_exec):
     else:
         return "Normal"
 
+# TODO: Can we separate sub-function for clarity?
 def impact_analysis(data, avg_emission, total_loc):
     """
     Display code smell LOC vs carbon emission analysis comparing previous and current runs.
@@ -641,6 +647,8 @@ def carbon_track(path, args, total_loc=0):
     print("-" * BREAK_LINE_NO)
     
     # Run the target file with carbon tracking 5 times
+    # TODO: Extract to new method like run_entry_point(target_file)? 5 times 
+    # then use function find_avg_code_carbon_data(all_runs)?
     all_runs = []
     
     try:
@@ -713,6 +721,7 @@ def carbon_track(path, args, total_loc=0):
         print(f"⚠️  Error during carbon tracking: {e}")
         return
     
+    # TODO: Extract to new method like find_avg_code_carbon_data(all_runs)?
     # Calculate averages from all runs
     if all_runs:
         # avg_duration = sum(r['duration'] for r in all_runs) / len(all_runs)
@@ -747,6 +756,7 @@ def carbon_track(path, args, total_loc=0):
         else:
             sci_per_cfp = 0
 
+        # TODO: Extract to new method like save_metric_as_history()?
         # Load history for comparison
         file_path = "history.json"
         if os.path.exists(file_path):
@@ -805,6 +815,7 @@ def carbon_track(path, args, total_loc=0):
         with open(file_path, "w") as f:
             f.write(json_str)
         
+        # TODO: Extract to new method like display_carbon_report()?
         # Display results
         print("\n" + "=" * BREAK_LINE_NO)
         print("🌍 GREEN CODE CARBON EMISSIONS REPORT 🌍")
