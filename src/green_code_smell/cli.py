@@ -39,7 +39,132 @@ except ImportError:
     print("⚠️  Warning: codecarbon not installed. Carbon tracking disabled.")
     print("   Install with: pip install codecarbon\n")
 
+def calculate_cosmic_cfp(file_path): # TODO: Can we not parse file again? using the same tree that already parsed?
+    """
+    Calculate COSMIC Function Points (CFP) from Python source code.
+    Compliant with ISO/IEC 19761:2011 (COSMIC v4.0.2).
+    
+    Data movements:
+    - E (Entry): User data input from external sources
+    - X (Exit): Results output to external systems
+    - R (Read): Data retrieval from persistent storage (DB, files)
+    - W (Write): Data write to persistent storage (DB, files)
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        tree = ast.parse(content)
+        total_cfp = 0
+        
+        # TODO: Improve by move or variable in constans file
 
+        # Database operations (persistent storage access)
+        db_read_patterns = {
+            'query', 'select', 'find', 'fetch', 'get', 'load', 'filter',
+            'all', 'first', 'one', 'read', 'execute'
+        }
+        db_write_patterns = {
+            'insert', 'update', 'delete', 'save', 'create', 'put',
+            'commit', 'execute', 'upsert', 'bulk_write'
+        }
+        
+        # User/External input sources
+        entry_patterns = {
+            'input', 'getline', 'stdin', 'request', 'parse_args', 'argv',
+            'json', 'loads', 'yaml', 'parse', 'environ'
+        }
+        
+        # User/External output destinations
+        exit_patterns = {
+            'print', 'write', 'return', 'render', 'jsonify', 'dump',
+            'response', 'send', 'emit', 'stdout', 'stderr'
+        }
+        
+        # File I/O operations (persistent storage)
+        file_read_patterns = {'open', 'read', 'load', 'pickle'}
+        file_write_patterns = {'open', 'write', 'dump', 'save', 'pickle'}
+
+        # Extract functions (1 Function = 1 Functional Process per ISO/IEC 19761)
+        functions = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+        
+        if not functions:
+            functions = [tree]
+
+        for func_node in functions:
+            movements = {'E': 0, 'X': 0, 'R': 0, 'W': 0}
+            
+            for node in ast.walk(func_node):
+                # Analyze function/method calls for data movements
+                if isinstance(node, ast.Call):
+                    func_name = ''
+                    full_call = ''
+                    
+                    if isinstance(node.func, ast.Name):
+                        func_name = node.func.id.lower()
+                    elif isinstance(node.func, ast.Attribute):
+                        func_name = node.func.attr.lower()
+                        # Try to get full call chain for better detection
+                        if isinstance(node.func.value, ast.Name):
+                            full_call = f"{node.func.value.id}.{func_name}".lower()
+                        elif isinstance(node.func.value, ast.Attribute):
+                            full_call = f"*.{func_name}".lower()
+                    
+                    if func_name:
+                        # Detect persistent storage READ (database/file operations)
+                        if any(pattern in func_name for pattern in db_read_patterns):
+                            if any(keyword in full_call for keyword in {'query', 'select', 'find', 'filter'}):
+                                movements['R'] += 1
+                                continue
+                        
+                        # TODO: maybe separate to sub function for clarity
+                        
+                        if func_name in file_read_patterns or 'read' in func_name:
+                            movements['R'] += 1
+                            continue
+                        
+                        # Detect persistent storage WRITE (database/file operations)
+                        if any(pattern in func_name for pattern in db_write_patterns):
+                            movements['W'] += 1
+                            continue
+                        
+                        if func_name in file_write_patterns or 'dump' in func_name:
+                            movements['W'] += 1
+                            continue
+                        
+                        # Detect user/external INPUT (Entry)
+                        if any(pattern in func_name for pattern in entry_patterns):
+                            movements['E'] += 1
+                            continue
+                        
+                        # Detect user/external OUTPUT (Exit)
+                        if any(pattern in func_name for pattern in exit_patterns):
+                            if func_name != 'return':  # return is handled separately
+                                movements['X'] += 1
+                                continue
+                
+                # Count explicit Return statements as Exit (function result output)
+                if isinstance(node, ast.Return) and node.value is not None:
+                    movements['X'] += 1
+                
+                # Count Yield as Exit (generator output)
+                if isinstance(node, (ast.Yield, ast.YieldFrom)):
+                    movements['X'] += 1
+            
+            # Calculate CFP for this process (sum of all data movements)
+            # According to COSMIC: minimum process size = 2 CFP (at least 1 movement in and 1 movement out)
+            # But we count movements, not processes, so minimum is 0
+            process_size = sum(movements.values())
+            total_cfp += process_size
+        
+        # Ensure minimum 1 CFP to prevent division by zero in SCI calculation
+        return max(total_cfp, 1)
+        
+    except Exception as e:
+        print(f"⚠️  Warning: Could not calculate COSMIC CFP for {file_path}: {e}")
+        return 1
+
+# TODO: Decide what metrics to use? SCI per LOC? SCI per CFP? SCI per LOC code smells? Carbon reduction per LOC of code smells reduced?
 def calculate_green_metrics(
     energy_consumed_kwh,
     emissions_rate_grams_per_kwh,
@@ -91,6 +216,7 @@ def determine_green_status(current_sci_per_exec, previous_sci_per_exec):
     else:
         return "Normal"
 
+# TODO: Can we separate sub-function for clarity?
 def impact_analysis(data, avg_emission, total_loc):
     """
     Display code smell LOC vs carbon emission analysis comparing previous and current runs.
@@ -521,6 +647,8 @@ def carbon_track(path, args, total_loc=0):
     print("-" * BREAK_LINE_NO)
     
     # Run the target file with carbon tracking 5 times
+    # TODO: Extract to new method like run_entry_point(target_file)? 5 times 
+    # then use function find_avg_code_carbon_data(all_runs)?
     all_runs = []
     
     try:
@@ -593,6 +721,7 @@ def carbon_track(path, args, total_loc=0):
         print(f"⚠️  Error during carbon tracking: {e}")
         return
     
+    # TODO: Extract to new method like find_avg_code_carbon_data(all_runs)?
     # Calculate averages from all runs
     if all_runs:
         # avg_duration = sum(r['duration'] for r in all_runs) / len(all_runs)
@@ -609,7 +738,6 @@ def carbon_track(path, args, total_loc=0):
         # Convert emissions_rate from kg CO2/kWs to gCO2eq/kWh
         emissions_rate_grams = avg_emissions_rate * SEC_HOUR * KG_GRAMS
         
-        
         # Calculate green metrics using SCI formula with LOC as functional unit
         green_metrics = calculate_green_metrics(
             energy_consumed_kwh=avg_energy,
@@ -618,6 +746,17 @@ def carbon_track(path, args, total_loc=0):
             embodied_carbon=0
         )
 
+        # Calculate COSMIC Function Points from the target file
+        cosmic_cfp = calculate_cosmic_cfp(target_file)
+        
+        # SCI Calculation: (E_kWh × I_kg_CO2_per_kWh × 1000_g_per_kg) / R_CFP
+        # Result: g CO2 per COSMIC Function Point
+        if cosmic_cfp > 0:
+            sci_per_cfp = (avg_energy * avg_emissions_rate * 1000) / cosmic_cfp
+        else:
+            sci_per_cfp = 0
+
+        # TODO: Extract to new method like save_metric_as_history()?
         # Load history for comparison
         file_path = "history.json"
         if os.path.exists(file_path):
@@ -666,6 +805,8 @@ def carbon_track(path, args, total_loc=0):
             "lines_of_code": green_metrics["total_loc_code_smells"],
             "sci_gCO2eq_per_line": green_metrics["sci_gCO2eq_per_line"],
             "status": status,
+            "cfp": cosmic_cfp,
+            "sci_per_cfp": sci_per_cfp,
             "improvement_percent": improvement
         }
         
@@ -674,6 +815,7 @@ def carbon_track(path, args, total_loc=0):
         with open(file_path, "w") as f:
             f.write(json_str)
         
+        # TODO: Extract to new method like display_carbon_report()?
         # Display results
         print("\n" + "=" * BREAK_LINE_NO)
         print("🌍 GREEN CODE CARBON EMISSIONS REPORT 🌍")
@@ -688,10 +830,13 @@ def carbon_track(path, args, total_loc=0):
         print(f"  Region: {region}")
         print(f"  Country: {country_name}")
         print(f"\n📊 Code Metrics:")
+        print(f"  COSMIC Function Points: {cosmic_cfp} CFP")
         print(f"  Total lines of code: {green_metrics['total_loc_code_smells']} LOC")
         print(f"\n🌱 SCI Metrics (Software Carbon Intensity):")
         print(f"  ├─ Per line of code: {green_metrics['sci_gCO2eq_per_line']:.8f} gCO2eq/LOC")
         print(f"  │  ℹ️  Lower is greener! Shorter code = lower carbon footprint")
+        print(f"  ├─ Per cosmic function point: {sci_per_cfp:.8f} gCO2eq/cfp")
+        print(f"  │  ℹ️  Lower is greener! less data movement = less carbon footprint")
         print(f"  └─")
         
         # print(f"\n📈 Status: {status}")
