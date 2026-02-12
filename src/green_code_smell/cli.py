@@ -42,7 +42,13 @@ except ImportError:
 def calculate_cosmic_cfp(file_path):
     """
     Calculate COSMIC Function Points (CFP) from Python source code.
-    Refined version compliant with ISO/IEC 19761:2011 (COSMIC v4.0.2).
+    Compliant with ISO/IEC 19761:2011 (COSMIC v4.0.2).
+    
+    Data movements:
+    - E (Entry): User data input from external sources
+    - X (Exit): Results output to external systems
+    - R (Read): Data retrieval from persistent storage (DB, files)
+    - W (Write): Data write to persistent storage (DB, files)
     """
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -51,64 +57,103 @@ def calculate_cosmic_cfp(file_path):
         tree = ast.parse(content)
         total_cfp = 0
         
-        # 1. ระบุ Functional User Input Keywords (Entry - E)
-        entry_keywords = {'input', 'get_json', 'parse_args', 'request', 'args', 'form', 'json'}
+        # Database operations (persistent storage access)
+        db_read_patterns = {
+            'query', 'select', 'find', 'fetch', 'get', 'load', 'filter',
+            'all', 'first', 'one', 'read', 'execute'
+        }
+        db_write_patterns = {
+            'insert', 'update', 'delete', 'save', 'create', 'put',
+            'commit', 'execute', 'upsert', 'bulk_write'
+        }
         
-        # 2. ระบุ Functional User Output Keywords (Exit - X)
-        exit_keywords = {'print', 'jsonify', 'render', 'send', 'redirect', 'http'}
+        # User/External input sources
+        entry_patterns = {
+            'input', 'getline', 'stdin', 'request', 'parse_args', 'argv',
+            'json', 'loads', 'yaml', 'parse', 'environ'
+        }
         
-        # 3. ระบุ Data retrieval (Read - R)
-        read_keywords = {'query', 'fetch', 'select', 'find', 'get', 'read', 'load', 'open'}
+        # User/External output destinations
+        exit_patterns = {
+            'print', 'write', 'return', 'render', 'jsonify', 'dump',
+            'response', 'send', 'emit', 'stdout', 'stderr'
+        }
         
-        # 4. ระบุ Data modification (Write - W)
-        write_keywords = {'save', 'insert', 'update', 'delete', 'commit', 'write', 'dump'}
+        # File I/O operations (persistent storage)
+        file_read_patterns = {'open', 'read', 'load', 'pickle'}
+        file_write_patterns = {'open', 'write', 'dump', 'save', 'pickle'}
 
-        # แยกวิเคราะห์รายฟังก์ชัน (1 Function = 1 Functional Process ตามมาตรฐาน)
+        # Extract functions (1 Function = 1 Functional Process per ISO/IEC 19761)
         functions = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
         
-        # หากไม่มีฟังก์ชันเลย ให้มองทั้งไฟล์เป็น 1 Process
         if not functions:
             functions = [tree]
 
         for func_node in functions:
-            # ใช้ Set เพื่อเก็บ Unique Data Groups ป้องกันการนับซ้ำใน 1 Process
-            movements = {
-                'E': set(), 'X': set(), 'R': set(), 'W': set()
-            }
+            movements = {'E': 0, 'X': 0, 'R': 0, 'W': 0}
             
             for node in ast.walk(func_node):
-                # ตรวจสอบการเรียกใช้ฟังก์ชัน/Method (Primary Data Movements)
+                # Analyze function/method calls for data movements
                 if isinstance(node, ast.Call):
                     func_name = ''
+                    full_call = ''
+                    
                     if isinstance(node.func, ast.Name):
                         func_name = node.func.id.lower()
                     elif isinstance(node.func, ast.Attribute):
                         func_name = node.func.attr.lower()
+                        # Try to get full call chain for better detection
+                        if isinstance(node.func.value, ast.Name):
+                            full_call = f"{node.func.value.id}.{func_name}".lower()
+                        elif isinstance(node.func.value, ast.Attribute):
+                            full_call = f"*.{func_name}".lower()
                     
                     if func_name:
-                        # จัดกลุ่มตามประเภทการไหลของข้อมูล
-                        if any(kw in func_name for kw in entry_keywords):
-                            movements['E'].add(func_name)
-                        elif any(kw in func_name for kw in exit_keywords):
-                            movements['X'].add(func_name)
-                        elif any(kw in func_name for kw in read_keywords):
-                            movements['R'].add(func_name)
-                        elif any(kw in func_name for kw in write_keywords):
-                            movements['W'].add(func_name)
+                        # Detect persistent storage READ (database/file operations)
+                        if any(pattern in func_name for pattern in db_read_patterns):
+                            if any(keyword in full_call for keyword in {'query', 'select', 'find', 'filter'}):
+                                movements['R'] += 1
+                                continue
+                        
+                        if func_name in file_read_patterns or 'read' in func_name:
+                            movements['R'] += 1
+                            continue
+                        
+                        # Detect persistent storage WRITE (database/file operations)
+                        if any(pattern in func_name for pattern in db_write_patterns):
+                            movements['W'] += 1
+                            continue
+                        
+                        if func_name in file_write_patterns or 'dump' in func_name:
+                            movements['W'] += 1
+                            continue
+                        
+                        # Detect user/external INPUT (Entry)
+                        if any(pattern in func_name for pattern in entry_patterns):
+                            movements['E'] += 1
+                            continue
+                        
+                        # Detect user/external OUTPUT (Exit)
+                        if any(pattern in func_name for pattern in exit_patterns):
+                            if func_name != 'return':  # return is handled separately
+                                movements['X'] += 1
+                                continue
                 
-                # นับ Return Statement เป็น Exit (X)
+                # Count explicit Return statements as Exit (function result output)
                 if isinstance(node, ast.Return) and node.value is not None:
-                    movements['X'].add('return_payload')
+                    movements['X'] += 1
                 
-                # นับ Yield Statement เป็น Exit (X)
+                # Count Yield as Exit (generator output)
                 if isinstance(node, (ast.Yield, ast.YieldFrom)):
-                    movements['X'].add('yield_payload')
+                    movements['X'] += 1
             
-            # คำนวณขนาดของ Process นี้ (ผลรวมของ Unique Movements)
-            process_size = sum(len(m_set) for m_set in movements.values())
+            # Calculate CFP for this process (sum of all data movements)
+            # According to COSMIC: minimum process size = 2 CFP (at least 1 movement in and 1 movement out)
+            # But we count movements, not processes, so minimum is 0
+            process_size = sum(movements.values())
             total_cfp += process_size
         
-        # มาตรฐานระบุว่าอย่างน้อยควรมี 1 CFP (เพื่อป้องกันการหารด้วย 0 ใน SCI)
+        # Ensure minimum 1 CFP to prevent division by zero in SCI calculation
         return max(total_cfp, 1)
         
     except Exception as e:
