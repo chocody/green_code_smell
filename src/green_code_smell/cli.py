@@ -39,16 +39,22 @@ except ImportError:
     print("⚠️  Warning: codecarbon not installed. Carbon tracking disabled.")
     print("   Install with: pip install codecarbon\n")
 
-def calculate_cosmic_cfp(file_path): # TODO: Can we not parse file again? using the same tree that already parsed?
+def calculate_cosmic_cfp(file_path):
     """
-    Calculate COSMIC Function Points (CFP) from Python source code.
-    Compliant with ISO/IEC 19761:2011 (COSMIC v4.0.2).
+    Calculate COSMIC Function Points (CFP) from Python source code using docstring analysis.
+    Based on Algorithm 1 from the paper:
+    "Predicting Software Size and Effort from Code Using Natural Language Processing"
+    (IWSM-MENSURA 2024)
+    
+    Algorithm 1: Automated Labeling Algorithm
+    - Analyzes function docstrings for keywords
+    - Maps keywords to COSMIC data movements: W, R, X, E
     
     Data movements:
-    - E (Entry): User data input from external sources
-    - X (Exit): Results output to external systems
-    - R (Read): Data retrieval from persistent storage (DB, files)
-    - W (Write): Data write to persistent storage (DB, files)
+    - W (Write): "write" in docstring
+    - R (Read): "read" + context (data, from, file, database)
+    - X (Exit): "send" or "sends" in docstring
+    - E (Entry): "get/gets" + "from" or "message" + "from" in docstring
     """
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -57,103 +63,101 @@ def calculate_cosmic_cfp(file_path): # TODO: Can we not parse file again? using 
         tree = ast.parse(content)
         total_cfp = 0
         
-        # TODO: Improve by move or variable in constans file
-
-        # Database operations (persistent storage access)
-        db_read_patterns = {
-            'query', 'select', 'find', 'fetch', 'get', 'load', 'filter',
-            'all', 'first', 'one', 'read', 'execute'
-        }
-        db_write_patterns = {
-            'insert', 'update', 'delete', 'save', 'create', 'put',
-            'commit', 'execute', 'upsert', 'bulk_write'
-        }
-        
-        # User/External input sources
-        entry_patterns = {
-            'input', 'getline', 'stdin', 'request', 'parse_args', 'argv',
-            'json', 'loads', 'yaml', 'parse', 'environ'
-        }
-        
-        # User/External output destinations
-        exit_patterns = {
-            'print', 'write', 'return', 'render', 'jsonify', 'dump',
-            'response', 'send', 'emit', 'stdout', 'stderr'
-        }
-        
-        # File I/O operations (persistent storage)
-        file_read_patterns = {'open', 'read', 'load', 'pickle'}
-        file_write_patterns = {'open', 'write', 'dump', 'save', 'pickle'}
-
-        # Extract functions (1 Function = 1 Functional Process per ISO/IEC 19761)
+        # Extract functions (1 Function = 1 Functional Process per COSMIC)
         functions = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
         
         if not functions:
+            # If no functions, treat entire module as one process
             functions = [tree]
 
         for func_node in functions:
             movements = {'E': 0, 'X': 0, 'R': 0, 'W': 0}
             
-            for node in ast.walk(func_node):
-                # Analyze function/method calls for data movements
-                if isinstance(node, ast.Call):
-                    func_name = ''
-                    full_call = ''
-                    
-                    if isinstance(node.func, ast.Name):
-                        func_name = node.func.id.lower()
-                    elif isinstance(node.func, ast.Attribute):
-                        func_name = node.func.attr.lower()
-                        # Try to get full call chain for better detection
-                        if isinstance(node.func.value, ast.Name):
-                            full_call = f"{node.func.value.id}.{func_name}".lower()
-                        elif isinstance(node.func.value, ast.Attribute):
-                            full_call = f"*.{func_name}".lower()
-                    
-                    if func_name:
-                        # Detect persistent storage READ (database/file operations)
-                        if any(pattern in func_name for pattern in db_read_patterns):
-                            if any(keyword in full_call for keyword in {'query', 'select', 'find', 'filter'}):
-                                movements['R'] += 1
-                                continue
-                        
-                        # TODO: maybe separate to sub function for clarity
-                        
-                        if func_name in file_read_patterns or 'read' in func_name:
-                            movements['R'] += 1
-                            continue
-                        
-                        # Detect persistent storage WRITE (database/file operations)
-                        if any(pattern in func_name for pattern in db_write_patterns):
-                            movements['W'] += 1
-                            continue
-                        
-                        if func_name in file_write_patterns or 'dump' in func_name:
-                            movements['W'] += 1
-                            continue
-                        
-                        # Detect user/external INPUT (Entry)
-                        if any(pattern in func_name for pattern in entry_patterns):
-                            movements['E'] += 1
-                            continue
-                        
-                        # Detect user/external OUTPUT (Exit)
-                        if any(pattern in func_name for pattern in exit_patterns):
-                            if func_name != 'return':  # return is handled separately
-                                movements['X'] += 1
-                                continue
-                
-                # Count explicit Return statements as Exit (function result output)
-                if isinstance(node, ast.Return) and node.value is not None:
-                    movements['X'] += 1
-                
-                # Count Yield as Exit (generator output)
-                if isinstance(node, (ast.Yield, ast.YieldFrom)):
-                    movements['X'] += 1
+            # Get docstring if available
+            docstring = ast.get_docstring(func_node)
             
-            # Calculate CFP for this process (sum of all data movements)
-            # According to COSMIC: minimum process size = 2 CFP (at least 1 movement in and 1 movement out)
-            # But we count movements, not processes, so minimum is 0
+            if docstring:
+                # Convert to lowercase for case-insensitive matching
+                doc_lower = docstring.lower()
+                words = doc_lower.split()
+                
+                # Algorithm 1: Line 1-3 - WRITE detection
+                # if the word "write" appears in the docstring then assign the label 0 (W)
+                if "write" in words:
+                    movements['W'] += 1
+                
+                # Algorithm 1: Line 4-6 - READ detection
+                # if the words "read" and "data", "read" and "from", "read" and "file", 
+                # "read" and "database", "data" and "from" and "file", 
+                # or "data" and "from" and "database" appear in the docstring then assign label 1 (R)
+                if "read" in words:
+                    if any(keyword in words for keyword in ["data", "from", "file", "database"]):
+                        movements['R'] += 1
+                elif "data" in words and "from" in words:
+                    if "file" in words or "database" in words:
+                        movements['R'] += 1
+                
+                # Algorithm 1: Line 7-9 - EXIT detection
+                # if the word "send" or "sends" appears in the docstring then assign label 2 (X)
+                if "send" in words or "sends" in words:
+                    movements['X'] += 1
+                
+                # Algorithm 1: Line 10-12 - ENTRY detection
+                # if the words "get" and "from" or "gets" and "from" 
+                # or "message" and "from" appear in the docstring then assign label 3 (E)
+                if ("get" in words and "from" in words) or \
+                   ("gets" in words and "from" in words) or \
+                   ("message" in words and "from" in words):
+                    movements['E'] += 1
+            
+            # Fallback: If no docstring or no movements detected, analyze code structure
+            if sum(movements.values()) == 0:
+                # Check for common patterns in function/method names
+                func_name = ""
+                if isinstance(func_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    func_name = func_node.name.lower()
+                
+                # Analyze function name for clues
+                if func_name:
+                    if "write" in func_name or "save" in func_name or "insert" in func_name:
+                        movements['W'] += 1
+                    if "read" in func_name or "load" in func_name or "fetch" in func_name:
+                        movements['R'] += 1
+                    if "send" in func_name or "emit" in func_name or "publish" in func_name:
+                        movements['X'] += 1
+                    if "get" in func_name or "receive" in func_name or "input" in func_name:
+                        movements['E'] += 1
+                
+                # Analyze code for common patterns
+                for node in ast.walk(func_node):
+                    # Check for function calls that indicate data movements
+                    if isinstance(node, ast.Call):
+                        call_func_name = ''
+                        if isinstance(node.func, ast.Name):
+                            call_func_name = node.func.id.lower()
+                        elif isinstance(node.func, ast.Attribute):
+                            call_func_name = node.func.attr.lower()
+                        
+                        if call_func_name:
+                            # WRITE patterns
+                            if call_func_name in ['write', 'save', 'insert', 'update', 'dump']:
+                                movements['W'] += 1
+                            # READ patterns
+                            elif call_func_name in ['read', 'load', 'fetch', 'query', 'select']:
+                                movements['R'] += 1
+                            # EXIT patterns
+                            elif call_func_name in ['send', 'print', 'emit', 'publish']:
+                                movements['X'] += 1
+                            # ENTRY patterns
+                            elif call_func_name in ['input', 'get', 'receive', 'request']:
+                                movements['E'] += 1
+                    
+                    # Count return statements as potential EXIT
+                    if isinstance(node, ast.Return) and node.value is not None:
+                        if movements['X'] == 0:  # Only count if not already counted
+                            movements['X'] += 1
+            
+            # Calculate CFP for this functional process
             process_size = sum(movements.values())
             total_cfp += process_size
         
