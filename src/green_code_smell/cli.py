@@ -41,129 +41,91 @@ except ImportError:
 
 def calculate_cosmic_cfp(file_path):
     """
-    Calculate COSMIC Function Points (CFP) from Python source code using docstring analysis.
-    Based on Algorithm 1 from the paper:
+    Calculate COSMIC Function Points (CFP) from Python source code.
+    Based on Algorithm 1 keywords from the paper:
     "Predicting Software Size and Effort from Code Using Natural Language Processing"
     (IWSM-MENSURA 2024)
-    
-    Algorithm 1: Automated Labeling Algorithm
-    - Analyzes function docstrings for keywords
-    - Maps keywords to COSMIC data movements: W, R, X, E
-    
+
+    Uses AST node traversal only (no docstrings).
+    Keywords matched against: call names and function names found in the AST.
+    Each matching AST node is counted individually (not deduplicated).
+
     Data movements:
-    - W (Write): "write" in docstring
-    - R (Read): "read" + context (data, from, file, database)
-    - X (Exit): "send" or "sends" in docstring
-    - E (Entry): "get/gets" + "from" or "message" + "from" in docstring
+    - W (Write): call/name contains – write, save, insert, update, dump, store, put
+    - R (Read):  call/name contains – read, retrieve, query, fetch, load, select
+    - X (Exit):  call/name contains – send, print, display, show, emit, publish
+                 fallback           – every non-None return/yield statement
+    - E (Entry): call/name contains – input, receive, request, get, gets, message
     """
+    import re
+
+    def _split(name):
+        """Split snake_case / camelCase into lowercase words."""
+        parts = re.sub(r'([A-Z])', r'_\1', name)
+        return [w.lower() for w in re.split(r'[_\s]+', parts) if w]
+
+    def _call_words(node):
+        """Extract word set from a Call node's function name."""
+        if isinstance(node.func, ast.Name):
+            return set(_split(node.func.id))
+        elif isinstance(node.func, ast.Attribute):
+            words = set(_split(node.func.attr))
+            if isinstance(node.func.value, ast.Name):
+                words |= set(_split(node.func.value.id))
+            return words
+        return set()
+
+    WRITE_KW = {'write', 'save', 'insert', 'update', 'dump', 'store', 'put'}
+    READ_KW  = {'read', 'retrieve', 'query', 'fetch', 'load', 'select'}
+    EXIT_KW  = {'send', 'sends', 'print', 'display', 'show', 'emit', 'publish'}
+    ENTRY_KW = {'input', 'receive', 'request', 'get', 'gets', 'message'}
+
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
-        
+
         tree = ast.parse(content)
         total_cfp = 0
-        
-        # Extract functions (1 Function = 1 Functional Process per COSMIC)
-        functions = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
-        
+
+        functions = [n for n in ast.walk(tree)
+                     if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
         if not functions:
-            # If no functions, treat entire module as one process
             functions = [tree]
 
         for func_node in functions:
-            movements = {'E': 0, 'X': 0, 'R': 0, 'W': 0}
-            
-            # Get docstring if available
-            docstring = ast.get_docstring(func_node)
-            
-            if docstring:
-                # Convert to lowercase for case-insensitive matching
-                doc_lower = docstring.lower()
-                words = doc_lower.split()
-                
-                # Algorithm 1: Line 1-3 - WRITE detection
-                # if the word "write" appears in the docstring then assign the label 0 (W)
-                if "write" in words:
-                    movements['W'] += 1
-                
-                # Algorithm 1: Line 4-6 - READ detection
-                # if the words "read" and "data", "read" and "from", "read" and "file", 
-                # "read" and "database", "data" and "from" and "file", 
-                # or "data" and "from" and "database" appear in the docstring then assign label 1 (R)
-                if "read" in words:
-                    if any(keyword in words for keyword in ["data", "from", "file", "database"]):
-                        movements['R'] += 1
-                elif "data" in words and "from" in words:
-                    if "file" in words or "database" in words:
-                        movements['R'] += 1
-                
-                # Algorithm 1: Line 7-9 - EXIT detection
-                # if the word "send" or "sends" appears in the docstring then assign label 2 (X)
-                if "send" in words or "sends" in words:
-                    movements['X'] += 1
-                
-                # Algorithm 1: Line 10-12 - ENTRY detection
-                # if the words "get" and "from" or "gets" and "from" 
-                # or "message" and "from" appear in the docstring then assign label 3 (E)
-                if ("get" in words and "from" in words) or \
-                   ("gets" in words and "from" in words) or \
-                   ("message" in words and "from" in words):
-                    movements['E'] += 1
-            
-            # Fallback: If no docstring or no movements detected, analyze code structure
-            if sum(movements.values()) == 0:
-                # Check for common patterns in function/method names
-                func_name = ""
-                if isinstance(func_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    func_name = func_node.name.lower()
-                
-                # Analyze function name for clues
-                if func_name:
-                    if "write" in func_name or "save" in func_name or "insert" in func_name:
-                        movements['W'] += 1
-                    if "read" in func_name or "load" in func_name or "fetch" in func_name:
-                        movements['R'] += 1
-                    if "send" in func_name or "emit" in func_name or "publish" in func_name:
-                        movements['X'] += 1
-                    if "get" in func_name or "receive" in func_name or "input" in func_name:
-                        movements['E'] += 1
-                
-                # Analyze code for common patterns
-                for node in ast.walk(func_node):
-                    # Check for function calls that indicate data movements
-                    if isinstance(node, ast.Call):
-                        call_func_name = ''
-                        if isinstance(node.func, ast.Name):
-                            call_func_name = node.func.id.lower()
-                        elif isinstance(node.func, ast.Attribute):
-                            call_func_name = node.func.attr.lower()
-                        
-                        if call_func_name:
-                            # WRITE patterns
-                            if call_func_name in ['write', 'save', 'insert', 'update', 'dump']:
-                                movements['W'] += 1
-                            # READ patterns
-                            elif call_func_name in ['read', 'load', 'fetch', 'query', 'select']:
-                                movements['R'] += 1
-                            # EXIT patterns
-                            elif call_func_name in ['send', 'print', 'emit', 'publish']:
-                                movements['X'] += 1
-                            # ENTRY patterns
-                            elif call_func_name in ['input', 'get', 'receive', 'request']:
-                                movements['E'] += 1
-                    
-                    # Count return statements as potential EXIT
-                    if isinstance(node, ast.Return) and node.value is not None:
-                        if movements['X'] == 0:  # Only count if not already counted
-                            movements['X'] += 1
-            
-            # Calculate CFP for this functional process
-            process_size = sum(movements.values())
-            total_cfp += process_size
-        
-        # Ensure minimum 1 CFP to prevent division by zero in SCI calculation
+            m = {'E': 0, 'X': 0, 'R': 0, 'W': 0}
+
+            # function name itself counted once
+            if isinstance(func_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                fname_words = set(_split(func_node.name))
+                if fname_words & WRITE_KW: m['W'] += 1
+                if fname_words & READ_KW:  m['R'] += 1
+                if fname_words & EXIT_KW:  m['X'] += 1
+                if fname_words & ENTRY_KW: m['E'] += 1
+
+            # walk every node inside the function
+            # - each matching Call is counted individually
+            # - Return/Yield counted only when no Exit call has been seen yet (m['X']==0)
+            for node in ast.walk(func_node):
+                if isinstance(node, ast.Call):
+                    cw = _call_words(node)
+                    if cw & WRITE_KW:
+                        m['W'] += 1
+                    elif cw & READ_KW:
+                        m['R'] += 1
+                    elif cw & EXIT_KW:
+                        m['X'] += 1
+                    elif cw & ENTRY_KW:
+                        m['E'] += 1
+                if isinstance(node, ast.Return) and node.value is not None and m['X'] == 0:
+                    m['X'] += 1
+                if isinstance(node, (ast.Yield, ast.YieldFrom)) and m['X'] == 0:
+                    m['X'] += 1
+
+            total_cfp += sum(m.values())
+
         return max(total_cfp, 1)
-        
+
     except Exception as e:
         print(f"⚠️  Warning: Could not calculate COSMIC CFP for {file_path}: {e}")
         return 1
