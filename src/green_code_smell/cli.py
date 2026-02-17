@@ -39,127 +39,93 @@ except ImportError:
     print("⚠️  Warning: codecarbon not installed. Carbon tracking disabled.")
     print("   Install with: pip install codecarbon\n")
 
-def calculate_cosmic_cfp(file_path): # TODO: Can we not parse file again? using the same tree that already parsed?
+def calculate_cosmic_cfp(file_path):
     """
     Calculate COSMIC Function Points (CFP) from Python source code.
-    Compliant with ISO/IEC 19761:2011 (COSMIC v4.0.2).
-    
+    Based on Algorithm 1 keywords from the paper:
+    "Predicting Software Size and Effort from Code Using Natural Language Processing"
+    (IWSM-MENSURA 2024)
+
+    Uses AST node traversal only (no docstrings).
+    Keywords matched against: call names and function names found in the AST.
+    Each matching AST node is counted individually (not deduplicated).
+
     Data movements:
-    - E (Entry): User data input from external sources
-    - X (Exit): Results output to external systems
-    - R (Read): Data retrieval from persistent storage (DB, files)
-    - W (Write): Data write to persistent storage (DB, files)
+    - W (Write): call/name contains – write, save, insert, update, dump, store, put
+    - R (Read):  call/name contains – read, retrieve, query, fetch, load, select
+    - X (Exit):  call/name contains – send, print, display, show, emit, publish
+                 fallback           – every non-None return/yield statement
+    - E (Entry): call/name contains – input, receive, request, get, gets, message
     """
+    import re
+
+    def _split(name):
+        """Split snake_case / camelCase into lowercase words."""
+        parts = re.sub(r'([A-Z])', r'_\1', name)
+        return [w.lower() for w in re.split(r'[_\s]+', parts) if w]
+
+    def _call_words(node):
+        """Extract word set from a Call node's function name."""
+        if isinstance(node.func, ast.Name):
+            return set(_split(node.func.id))
+        elif isinstance(node.func, ast.Attribute):
+            words = set(_split(node.func.attr))
+            if isinstance(node.func.value, ast.Name):
+                words |= set(_split(node.func.value.id))
+            return words
+        return set()
+
+    WRITE_KW = {'write', 'save', 'insert', 'update', 'dump', 'store', 'put'}
+    READ_KW  = {'read', 'retrieve', 'query', 'fetch', 'load', 'select'}
+    EXIT_KW  = {'send', 'sends', 'print', 'display', 'show', 'emit', 'publish'}
+    ENTRY_KW = {'input', 'receive', 'request', 'get', 'gets', 'message'}
+
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
-        
+
         tree = ast.parse(content)
         total_cfp = 0
-        
-        # TODO: Improve by move or variable in constans file
 
-        # Database operations (persistent storage access)
-        db_read_patterns = {
-            'query', 'select', 'find', 'fetch', 'get', 'load', 'filter',
-            'all', 'first', 'one', 'read', 'execute'
-        }
-        db_write_patterns = {
-            'insert', 'update', 'delete', 'save', 'create', 'put',
-            'commit', 'execute', 'upsert', 'bulk_write'
-        }
-        
-        # User/External input sources
-        entry_patterns = {
-            'input', 'getline', 'stdin', 'request', 'parse_args', 'argv',
-            'json', 'loads', 'yaml', 'parse', 'environ'
-        }
-        
-        # User/External output destinations
-        exit_patterns = {
-            'print', 'write', 'return', 'render', 'jsonify', 'dump',
-            'response', 'send', 'emit', 'stdout', 'stderr'
-        }
-        
-        # File I/O operations (persistent storage)
-        file_read_patterns = {'open', 'read', 'load', 'pickle'}
-        file_write_patterns = {'open', 'write', 'dump', 'save', 'pickle'}
-
-        # Extract functions (1 Function = 1 Functional Process per ISO/IEC 19761)
-        functions = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
-        
+        functions = [n for n in ast.walk(tree)
+                     if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
         if not functions:
             functions = [tree]
 
         for func_node in functions:
-            movements = {'E': 0, 'X': 0, 'R': 0, 'W': 0}
-            
+            m = {'E': 0, 'X': 0, 'R': 0, 'W': 0}
+
+            # function name itself counted once
+            if isinstance(func_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                fname_words = set(_split(func_node.name))
+                if fname_words & WRITE_KW: m['W'] += 1
+                if fname_words & READ_KW:  m['R'] += 1
+                if fname_words & EXIT_KW:  m['X'] += 1
+                if fname_words & ENTRY_KW: m['E'] += 1
+
+            # walk every node inside the function
+            # - each matching Call is counted individually
+            # - Return/Yield counted only when no Exit call has been seen yet (m['X']==0)
             for node in ast.walk(func_node):
-                # Analyze function/method calls for data movements
                 if isinstance(node, ast.Call):
-                    func_name = ''
-                    full_call = ''
-                    
-                    if isinstance(node.func, ast.Name):
-                        func_name = node.func.id.lower()
-                    elif isinstance(node.func, ast.Attribute):
-                        func_name = node.func.attr.lower()
-                        # Try to get full call chain for better detection
-                        if isinstance(node.func.value, ast.Name):
-                            full_call = f"{node.func.value.id}.{func_name}".lower()
-                        elif isinstance(node.func.value, ast.Attribute):
-                            full_call = f"*.{func_name}".lower()
-                    
-                    if func_name:
-                        # Detect persistent storage READ (database/file operations)
-                        if any(pattern in func_name for pattern in db_read_patterns):
-                            if any(keyword in full_call for keyword in {'query', 'select', 'find', 'filter'}):
-                                movements['R'] += 1
-                                continue
-                        
-                        # TODO: maybe separate to sub function for clarity
-                        
-                        if func_name in file_read_patterns or 'read' in func_name:
-                            movements['R'] += 1
-                            continue
-                        
-                        # Detect persistent storage WRITE (database/file operations)
-                        if any(pattern in func_name for pattern in db_write_patterns):
-                            movements['W'] += 1
-                            continue
-                        
-                        if func_name in file_write_patterns or 'dump' in func_name:
-                            movements['W'] += 1
-                            continue
-                        
-                        # Detect user/external INPUT (Entry)
-                        if any(pattern in func_name for pattern in entry_patterns):
-                            movements['E'] += 1
-                            continue
-                        
-                        # Detect user/external OUTPUT (Exit)
-                        if any(pattern in func_name for pattern in exit_patterns):
-                            if func_name != 'return':  # return is handled separately
-                                movements['X'] += 1
-                                continue
-                
-                # Count explicit Return statements as Exit (function result output)
-                if isinstance(node, ast.Return) and node.value is not None:
-                    movements['X'] += 1
-                
-                # Count Yield as Exit (generator output)
-                if isinstance(node, (ast.Yield, ast.YieldFrom)):
-                    movements['X'] += 1
-            
-            # Calculate CFP for this process (sum of all data movements)
-            # According to COSMIC: minimum process size = 2 CFP (at least 1 movement in and 1 movement out)
-            # But we count movements, not processes, so minimum is 0
-            process_size = sum(movements.values())
-            total_cfp += process_size
-        
-        # Ensure minimum 1 CFP to prevent division by zero in SCI calculation
+                    cw = _call_words(node)
+                    if cw & WRITE_KW:
+                        m['W'] += 1
+                    elif cw & READ_KW:
+                        m['R'] += 1
+                    elif cw & EXIT_KW:
+                        m['X'] += 1
+                    elif cw & ENTRY_KW:
+                        m['E'] += 1
+                if isinstance(node, ast.Return) and node.value is not None and m['X'] == 0:
+                    m['X'] += 1
+                if isinstance(node, (ast.Yield, ast.YieldFrom)) and m['X'] == 0:
+                    m['X'] += 1
+
+            total_cfp += sum(m.values())
+
         return max(total_cfp, 1)
-        
+
     except Exception as e:
         print(f"⚠️  Warning: Could not calculate COSMIC CFP for {file_path}: {e}")
         return 1
