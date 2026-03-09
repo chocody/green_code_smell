@@ -39,7 +39,28 @@ except ImportError:
     print("⚠️  Warning: codecarbon not installed. Carbon tracking disabled.")
     print("   Install with: pip install codecarbon\n")
 
-def calculate_cosmic_cfp(file_path): # TODO: Can we not parse file again? using the same tree that already parsed?
+# Patterns used for COSMIC Function Point analysis
+CFP_DB_READ_PATTERNS = {
+    'query', 'select', 'find', 'fetch', 'get', 'load', 'filter',
+    'all', 'first', 'one', 'read', 'execute'
+}
+CFP_DB_WRITE_PATTERNS = {
+    'insert', 'update', 'delete', 'save', 'create', 'put',
+    'commit', 'execute', 'upsert', 'bulk_write'
+}
+CFP_ENTRY_PATTERNS = {
+    'input', 'getline', 'stdin', 'request', 'parse_args', 'argv',
+    'json', 'loads', 'yaml', 'parse', 'environ'
+}
+CFP_EXIT_PATTERNS = {
+    'print', 'write', 'return', 'render', 'jsonify', 'dump',
+    'response', 'send', 'emit', 'stdout', 'stderr'
+}
+CFP_FILE_READ_PATTERNS = {'open', 'read', 'load', 'pickle'}
+CFP_FILE_WRITE_PATTERNS = {'open', 'write', 'dump', 'save', 'pickle'}
+
+
+def calculate_cosmic_cfp(file_path):
     """
     Calculate COSMIC Function Points (CFP) from Python source code.
     Compliant with ISO/IEC 19761:2011 (COSMIC v4.0.2).
@@ -56,34 +77,6 @@ def calculate_cosmic_cfp(file_path): # TODO: Can we not parse file again? using 
         
         tree = ast.parse(content)
         total_cfp = 0
-        
-        # TODO: Improve by move or variable in constans file
-
-        # Database operations (persistent storage access)
-        db_read_patterns = {
-            'query', 'select', 'find', 'fetch', 'get', 'load', 'filter',
-            'all', 'first', 'one', 'read', 'execute'
-        }
-        db_write_patterns = {
-            'insert', 'update', 'delete', 'save', 'create', 'put',
-            'commit', 'execute', 'upsert', 'bulk_write'
-        }
-        
-        # User/External input sources
-        entry_patterns = {
-            'input', 'getline', 'stdin', 'request', 'parse_args', 'argv',
-            'json', 'loads', 'yaml', 'parse', 'environ'
-        }
-        
-        # User/External output destinations
-        exit_patterns = {
-            'print', 'write', 'return', 'render', 'jsonify', 'dump',
-            'response', 'send', 'emit', 'stdout', 'stderr'
-        }
-        
-        # File I/O operations (persistent storage)
-        file_read_patterns = {'open', 'read', 'load', 'pickle'}
-        file_write_patterns = {'open', 'write', 'dump', 'save', 'pickle'}
 
         # Extract functions (1 Function = 1 Functional Process per ISO/IEC 19761)
         functions = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
@@ -112,33 +105,31 @@ def calculate_cosmic_cfp(file_path): # TODO: Can we not parse file again? using 
                     
                     if func_name:
                         # Detect persistent storage READ (database/file operations)
-                        if any(pattern in func_name for pattern in db_read_patterns):
+                        if any(pattern in func_name for pattern in CFP_DB_READ_PATTERNS):
                             if any(keyword in full_call for keyword in {'query', 'select', 'find', 'filter'}):
                                 movements['R'] += 1
                                 continue
                         
-                        # TODO: maybe separate to sub function for clarity
-                        
-                        if func_name in file_read_patterns or 'read' in func_name:
+                        if func_name in CFP_FILE_READ_PATTERNS or 'read' in func_name:
                             movements['R'] += 1
                             continue
                         
                         # Detect persistent storage WRITE (database/file operations)
-                        if any(pattern in func_name for pattern in db_write_patterns):
+                        if any(pattern in func_name for pattern in CFP_DB_WRITE_PATTERNS):
                             movements['W'] += 1
                             continue
                         
-                        if func_name in file_write_patterns or 'dump' in func_name:
+                        if func_name in CFP_FILE_WRITE_PATTERNS or 'dump' in func_name:
                             movements['W'] += 1
                             continue
                         
                         # Detect user/external INPUT (Entry)
-                        if any(pattern in func_name for pattern in entry_patterns):
+                        if any(pattern in func_name for pattern in CFP_ENTRY_PATTERNS):
                             movements['E'] += 1
                             continue
                         
                         # Detect user/external OUTPUT (Exit)
-                        if any(pattern in func_name for pattern in exit_patterns):
+                        if any(pattern in func_name for pattern in CFP_EXIT_PATTERNS):
                             if func_name != 'return':  # return is handled separately
                                 movements['X'] += 1
                                 continue
@@ -164,7 +155,6 @@ def calculate_cosmic_cfp(file_path): # TODO: Can we not parse file again? using 
         print(f"⚠️  Warning: Could not calculate COSMIC CFP for {file_path}: {e}")
         return 1
 
-# TODO: Decide what metrics to use? SCI per LOC? SCI per CFP? SCI per LOC code smells? Carbon reduction per LOC of code smells reduced?
 def calculate_green_metrics(
     energy_consumed_kwh,
     emissions_rate_grams_per_kwh,
@@ -201,7 +191,6 @@ def calculate_green_metrics(
         "sci_gCO2eq_per_line": sci_per_line,
     }
 
-
 def determine_green_status(current_sci_per_exec, previous_sci_per_exec):
     """
     Compare current SCI per LOC with previous to determine status
@@ -216,7 +205,6 @@ def determine_green_status(current_sci_per_exec, previous_sci_per_exec):
     else:
         return "Normal"
 
-# TODO: Can we separate sub-function for clarity?
 def impact_analysis(data, avg_emission, total_loc):
     """
     Display code smell LOC vs carbon emission analysis comparing previous and current runs.
@@ -589,267 +577,354 @@ def display_results(all_results, total_issues, all_files, args):
     print("=" * BREAK_LINE_NO + "\n")
 
 
-def carbon_track(path, args, total_loc=0):
-    """Track carbon emissions for running the target application"""
-    if not CODECARBON_AVAILABLE or args.no_carbon:
-        return
+def run_entry_point_with_carbon(target_file, iterations=5, timeout=30):
+    """
+    Run the target Python file multiple times under CodeCarbon tracking.
     
-    # Determine which file to run for carbon tracking
-    target_file = None
+    Returns (all_runs, last_result, last_duration) where:
+    - all_runs: list of per-run emission/energy records from CodeCarbon
+    - last_result: subprocess.CompletedProcess from the last run
+    - last_duration: duration (seconds) from the last run
+    """
+    all_runs = []
+    last_result = None
+    last_duration = None
+
+    import logging
+    logging.getLogger("codecarbon").setLevel(logging.CRITICAL)
+
+    for run_num in range(1, iterations + 1):
+        print(f"\n▶️  Run {run_num}/{iterations}...")
+        tracker = None
+        emissions_data = None
+
+        try:
+            tracker = EmissionsTracker(
+                log_level="critical",
+                save_to_file=False,
+                save_to_api=False,
+                allow_multiple_runs=True,
+                project_name=f"carbon_track_{target_file.stem}"
+            )
+            tracker.start()
+
+            # Run the target file as a subprocess
+            result = subprocess.run(
+                [sys.executable, str(target_file)],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+
+            duration = tracker.stop()
+            emissions_data = tracker.final_emissions_data
+
+            last_result = result
+            last_duration = duration
+
+            if emissions_data:
+                all_runs.append(
+                    {
+                        "duration": duration,
+                        "emission": emissions_data.emissions,
+                        "energy_consumed": emissions_data.energy_consumed,
+                        "cpu_power": emissions_data.cpu_power,
+                        "ram_power": emissions_data.ram_power,
+                        "cpu_energy": emissions_data.cpu_energy,
+                        "ram_energy": emissions_data.ram_energy,
+                        "emissions_rate": emissions_data.emissions_rate,
+                        "region": emissions_data.region,
+                        "country_name": emissions_data.country_name,
+                    }
+                )
+                print(f"  ✓ Run {run_num} completed")
+
+        except subprocess.TimeoutExpired:
+            print(f"  ⚠️  Run {run_num} timed out")
+            continue
+        except Exception as e:
+            print(f"  ⚠️  Run {run_num} failed: {e}")
+            continue
+
+    return all_runs, last_result, last_duration
+
+
+def compute_average_run_data(all_runs):
+    """
+    Compute average emission/energy statistics from a list of CodeCarbon runs.
     
-    if args.carbon_run:
-        # User specified a file to run
-        target_file = Path(args.carbon_run)
-        if not target_file.exists():
-            print(f"⚠️  Warning: Specified file '{args.carbon_run}' not found. Skipping carbon tracking.")
-            return
-        if not target_file.suffix == '.py':
-            print(f"⚠️  Warning: Specified file '{args.carbon_run}' is not a Python file. Skipping carbon tracking.")
-            return
+    Returns dict with keys:
+        avg_emission, avg_energy, avg_emissions_rate, region, country_name
+    or None if there are no runs.
+    """
+    if not all_runs:
+        return None
+
+    avg_emission = sum(r["emission"] for r in all_runs) / len(all_runs)
+    avg_energy = sum(r["energy_consumed"] for r in all_runs) / len(all_runs)
+    avg_emissions_rate = sum(r["emissions_rate"] for r in all_runs) / len(all_runs)
+    region = all_runs[0]["region"]
+    country_name = all_runs[0]["country_name"]
+
+    return {
+        "avg_emission": avg_emission,
+        "avg_energy": avg_energy,
+        "avg_emissions_rate": avg_emissions_rate,
+        "region": region,
+        "country_name": country_name,
+    }
+
+
+def save_metric_to_history(
+    history_path,
+    target_file,
+    duration,
+    avg_emission,
+    avg_energy,
+    emissions_rate_grams,
+    green_metrics,
+    cosmic_cfp,
+):
+    """
+    Persist the computed green metrics into the history file and return the
+    full history list.
+    """
+    if os.path.exists(history_path):
+        with open(history_path, "r") as f:
+            try:
+                data = json.load(f)
+                if not isinstance(data, list):
+                    data = [data]
+            except json.JSONDecodeError:
+                data = []
     else:
-        # Try to auto-detect main file
-        target_file = find_main_file(path)
-        
-        # Check for error messages returned from find_main_file
-        if isinstance(target_file, str):
-            if target_file.startswith("error has main function only"):
-                # Extract file path from error message
-                if target_file.startswith("error has main function only multiple"):
-                    files_part = target_file.replace("error has main function only multiple ", "")
-                    print("⚠️  Found files with def main() but no entry point:")
-                    for f in files_part.split():
-                        print(f"    {f}")
-                    print("   Files must contain: if __name__ == \"__main__\":")
-                else:
-                    file_path = target_file.replace("error has main function only ", "")
-                    print(f"⚠️  Warning: {file_path} has def main() but no entry point.")
-                    print("   The file must contain: if __name__ == \"__main__\":")
-                print("   Use --carbon-run <file.py> to specify a file with proper entry point, or")
-                print("   use --no-carbon to disable carbon tracking.\n")
-            elif target_file == "error no entry point found":
-                print("⚠️  No main entry point found for carbon tracking.")
-                print("   Use --carbon-run <file.py> to specify the file to run, or")
-                print("   use --no-carbon to disable carbon tracking.\n")
-            elif target_file == "error too many entry point found please specify":
-                print("⚠️  Multiple main entry point candidates found. Please specify which one to run.")
-                print("   Use --carbon-run <file.py> to specify the file to run, or")
-                print("   use --no-carbon to disable carbon tracking.\n")
-            return
-        
-        if not target_file:
+        data = []
+
+    if len(data) == 0:
+        status = "Initial"
+        id_num = 1
+        previous_sci_per_loc = None
+    else:
+        id_num = data[-1]["id"] + 1
+        previous_sci_per_loc = data[-1].get("sci_gCO2eq_per_line")
+        status = determine_green_status(
+            green_metrics["sci_gCO2eq_per_line"], previous_sci_per_loc
+        )
+
+    if previous_sci_per_loc and previous_sci_per_loc > 0:
+        improvement = (
+            (previous_sci_per_loc - green_metrics["sci_gCO2eq_per_line"])
+            / previous_sci_per_loc
+            * 100
+        )
+    else:
+        improvement = None
+
+    metric = {
+        "id": id_num,
+        "date_time": str(datetime.now()),
+        "target_file": str(target_file),
+        "duration_seconds": duration,
+        "emission_kg": avg_emission,
+        "energy_consumed_kWh": avg_energy,
+        "region": green_metrics.get("region", None),
+        "country_name": green_metrics.get("country_name", None),
+        "emissions_rate_gCO2eq_per_kWh": emissions_rate_grams,
+        "total_emissions_gCO2eq": green_metrics["total_emissions_gCO2eq"],
+        "lines_of_code": green_metrics["total_loc_code_smells"],
+        "sci_gCO2eq_per_line": green_metrics["sci_gCO2eq_per_line"],
+        "status": status,
+        "cfp": cosmic_cfp,
+        "sci_per_cfp": green_metrics.get("sci_per_cfp", None),
+        "improvement_percent": improvement,
+    }
+
+    data.append(metric)
+
+    json_str = json.dumps(data, indent=4)
+    with open(history_path, "w") as f:
+        f.write(json_str)
+
+    return data
+
+
+def display_carbon_report(
+    target_file,
+    duration,
+    avg_emission,
+    avg_energy,
+    emissions_rate_grams,
+    region,
+    country_name,
+    green_metrics,
+    cosmic_cfp,
+    sci_per_cfp,
+):
+    """Pretty-print the carbon and SCI metrics report."""
+    print("\n" + "=" * BREAK_LINE_NO)
+    print("🌍 GREEN CODE CARBON EMISSIONS REPORT 🌍")
+    print("=" * BREAK_LINE_NO)
+    print(f"\n📋 Execution Details:")
+    print(f"  Target file: {target_file}")
+    print(f"  Duration: {duration:.2f} seconds")
+    print(f"\n⚡ Energy & Emissions:")
+    print(f"  Total energy consumed: {avg_energy:.6f} kWh")
+    print(f"  Carbon emissions: {avg_emission:.6e} kg CO2")
+    print(f"  Emissions rate: {emissions_rate_grams:.2f} gCO2eq/kWh")
+    print(f"  Region: {region}")
+    print(f"  Country: {country_name}")
+    print(f"\n📊 Code Metrics:")
+    print(f"  COSMIC Function Points: {cosmic_cfp} CFP")
+    print(f"  Total lines of code: {green_metrics['total_loc_code_smells']} LOC")
+    # SCI (Software Carbon Intensity) metrics - commented out
+    # print(f"\n🌱 SCI Metrics (Software Carbon Intensity):")
+    # print(f"  ├─ Per line of code: {green_metrics['sci_gCO2eq_per_line']:.8f} gCO2eq/LOC")
+    # print(f"  │  ℹ️  Lower is greener! Shorter code = lower carbon footprint")
+    # print(f"  ├─ Per cosmic function point: {sci_per_cfp:.8f} gCO2eq/cfp")
+    # print(f"  │  ℹ️  Lower is greener! less data movement = less carbon footprint")
+    # print(f"  └─")
+
+
+def _resolve_carbon_target_file(path, args):
+    """
+    Resolve which Python file to run for carbon tracking.
+    Returns Path if valid, None otherwise (and prints appropriate warnings).
+    """
+    if args.carbon_run:
+        target = Path(args.carbon_run)
+        if not target.exists():
+            print(f"⚠️  Warning: Specified file '{args.carbon_run}' not found. Skipping carbon tracking.")
+            return None
+        if target.suffix != '.py':
+            print(f"⚠️  Warning: Specified file '{args.carbon_run}' is not a Python file. Skipping carbon tracking.")
+            return None
+        return target
+
+    target = find_main_file(path)
+    if isinstance(target, str):
+        if target.startswith("error has main function only"):
+            if target.startswith("error has main function only multiple"):
+                files_part = target.replace("error has main function only multiple ", "")
+                print("⚠️  Found files with def main() but no entry point:")
+                for f in files_part.split():
+                    print(f"    {f}")
+                print("   Files must contain: if __name__ == \"__main__\":")
+            else:
+                file_path = target.replace("error has main function only ", "")
+                print(f"⚠️  Warning: {file_path} has def main() but no entry point.")
+                print("   The file must contain: if __name__ == \"__main__\":")
+            print("   Use --carbon-run <file.py> to specify a file with proper entry point, or")
+            print("   use --no-carbon to disable carbon tracking.\n")
+        elif target == "error no entry point found":
             print("⚠️  No main entry point found for carbon tracking.")
             print("   Use --carbon-run <file.py> to specify the file to run, or")
             print("   use --no-carbon to disable carbon tracking.\n")
-            return
-    
+        elif target == "error too many entry point found please specify":
+            print("⚠️  Multiple main entry point candidates found. Please specify which one to run.")
+            print("   Use --carbon-run <file.py> to specify the file to run, or")
+            print("   use --no-carbon to disable carbon tracking.\n")
+        return None
+    if not target:
+        print("⚠️  No main entry point found for carbon tracking.")
+        print("   Use --carbon-run <file.py> to specify the file to run, or")
+        print("   use --no-carbon to disable carbon tracking.\n")
+        return None
+    return target
+
+
+def _print_program_output(result):
+    """Print stdout/stderr and return code from the last carbon run."""
+    if result is None:
+        return
+    if result.stdout:
+        print("\n📋 Program output (from last run):")
+        print(result.stdout)
+    else:
+        print("\n⚠️  No output captured. The entry point was executed but may not have produced any output.")
+    if result.stderr:
+        print("\n⚠️  Program errors/warnings:")
+        print(result.stderr)
+    if result.returncode != 0:
+        print(f"\n⚠️  Program exited with code {result.returncode}")
+
+
+def _process_carbon_runs(target_file, all_runs, result, duration, total_loc):
+    """
+    Compute averages, green metrics, save history, and display report + impact analysis.
+    Returns True if successful, False if no runs (caller may return early).
+    """
+    averages = compute_average_run_data(all_runs)
+    if not averages:
+        return False
+
+    avg_emission = averages["avg_emission"]
+    avg_energy = averages["avg_energy"]
+    avg_emissions_rate = averages["avg_emissions_rate"]
+    region = averages["region"]
+    country_name = averages["country_name"]
+    emissions_rate_grams = avg_emissions_rate * SEC_HOUR * KG_GRAMS
+
+    green_metrics = calculate_green_metrics(
+        energy_consumed_kwh=avg_energy,
+        emissions_rate_grams_per_kwh=emissions_rate_grams,
+        total_lines_of_code=total_loc,
+        embodied_carbon=0,
+    )
+    cosmic_cfp = calculate_cosmic_cfp(target_file)
+    sci_per_cfp = (avg_energy * avg_emissions_rate * 1000) / cosmic_cfp if cosmic_cfp > 0 else 0
+
+    green_metrics_with_context = dict(green_metrics)
+    green_metrics_with_context["region"] = region
+    green_metrics_with_context["country_name"] = country_name
+    green_metrics_with_context["sci_per_cfp"] = sci_per_cfp
+
+    data = save_metric_to_history(
+        "history.json",
+        target_file,
+        duration,
+        avg_emission,
+        avg_energy,
+        emissions_rate_grams,
+        green_metrics_with_context,
+        cosmic_cfp,
+    )
+    display_carbon_report(
+        target_file,
+        duration,
+        avg_emission,
+        avg_energy,
+        emissions_rate_grams,
+        region,
+        country_name,
+        green_metrics,
+        cosmic_cfp,
+        sci_per_cfp,
+    )
+    impact_analysis(data, avg_emission, total_loc)
+    return True
+
+
+def carbon_track(path, args, total_loc=0):
+    """Track carbon emissions for running the target application."""
+    if not CODECARBON_AVAILABLE or args.no_carbon:
+        return
+
+    target_file = _resolve_carbon_target_file(path, args)
+    if not target_file:
+        return
+
     print(f"\n🌱 Tracking carbon emissions for: {target_file}")
     print("   Running 5 iterations for average calculations...")
     print("-" * BREAK_LINE_NO)
-    
-    # Run the target file with carbon tracking 5 times
-    # TODO: Extract to new method like run_entry_point(target_file)? 5 times 
-    # then use function find_avg_code_carbon_data(all_runs)?
-    all_runs = []
-    
-    try:
-        import logging
-        logging.getLogger("codecarbon").setLevel(logging.CRITICAL)
-        
-        for run_num in range(1, 6):
-            print(f"\n▶️  Run {run_num}/5...")
-            tracker = None
-            emissions_data = None
-            
-            try:
-                tracker = EmissionsTracker(
-                    log_level="critical",
-                    save_to_file=False,
-                    save_to_api=False,
-                    allow_multiple_runs=True,
-                    project_name=f"carbon_track_{target_file.stem}"
-                )
-                tracker.start()
-                
-                # Run the target file as a subprocess
-                result = subprocess.run(
-                    [sys.executable, str(target_file)],
-                    capture_output=True,
-                    text=True,
-                    timeout=30  # 30 second timeout
-                )
-                
-                duration = tracker.stop()
-                emissions_data = tracker.final_emissions_data
-                
-                if emissions_data:
-                    all_runs.append({
-                        'duration': duration,
-                        'emission': emissions_data.emissions,
-                        'energy_consumed': emissions_data.energy_consumed,
-                        'cpu_power': emissions_data.cpu_power,
-                        'ram_power': emissions_data.ram_power,
-                        'cpu_energy': emissions_data.cpu_energy,
-                        'ram_energy': emissions_data.ram_energy,
-                        'emissions_rate': emissions_data.emissions_rate,
-                        'region': emissions_data.region,
-                        'country_name': emissions_data.country_name,
-                    })
-                    print(f"  ✓ Run {run_num} completed")
-            
-            except subprocess.TimeoutExpired:
-                print(f"  ⚠️  Run {run_num} timed out")
-                continue
-            except Exception as e:
-                print(f"  ⚠️  Run {run_num} failed: {e}")
-                continue
-        
-        # Show first run's program output
-        if result.stdout:
-            print("\n📋 Program output (from first run):")
-            print(result.stdout)
-        else:
-            print("\n⚠️  No output captured. The entry point was executed but may not have produced any output.")
-        
-        if result.stderr:
-            print("\n⚠️  Program errors/warnings:")
-            print(result.stderr)
-        
-        if result.returncode != 0:
-            print(f"\n⚠️  Program exited with code {result.returncode}")
 
+    try:
+        all_runs, result, duration = run_entry_point_with_carbon(target_file, iterations=5, timeout=30)
     except Exception as e:
         print(f"⚠️  Error during carbon tracking: {e}")
         return
-    
-    # TODO: Extract to new method like find_avg_code_carbon_data(all_runs)?
-    # Calculate averages from all runs
-    if all_runs:
-        # avg_duration = sum(r['duration'] for r in all_runs) / len(all_runs)
-        avg_emission = sum(r['emission'] for r in all_runs) / len(all_runs)
-        avg_energy = sum(r['energy_consumed'] for r in all_runs) / len(all_runs)
-        # avg_cpu_power = sum(r['cpu_power'] for r in all_runs) / len(all_runs)
-        # avg_ram_power = sum(r['ram_power'] for r in all_runs) / len(all_runs)
-        # avg_cpu_energy = sum(r['cpu_energy'] for r in all_runs) / len(all_runs)
-        # avg_ram_energy = sum(r['ram_energy'] for r in all_runs) / len(all_runs)
-        avg_emissions_rate = sum(r['emissions_rate'] for r in all_runs) / len(all_runs)
-        region = all_runs[0]['region']
-        country_name = all_runs[0]['country_name']
 
-        # Convert emissions_rate from kg CO2/kWs to gCO2eq/kWh
-        emissions_rate_grams = avg_emissions_rate * SEC_HOUR * KG_GRAMS
-        
-        # Calculate green metrics using SCI formula with LOC as functional unit
-        green_metrics = calculate_green_metrics(
-            energy_consumed_kwh=avg_energy,
-            emissions_rate_grams_per_kwh=emissions_rate_grams,
-            total_lines_of_code=total_loc,
-            embodied_carbon=0
-        )
-
-        # Calculate COSMIC Function Points from the target file
-        cosmic_cfp = calculate_cosmic_cfp(target_file)
-        
-        # SCI Calculation: (E_kWh × I_kg_CO2_per_kWh × 1000_g_per_kg) / R_CFP
-        # Result: g CO2 per COSMIC Function Point
-        if cosmic_cfp > 0:
-            sci_per_cfp = (avg_energy * avg_emissions_rate * 1000) / cosmic_cfp
-        else:
-            sci_per_cfp = 0
-
-        # TODO: Extract to new method like save_metric_as_history()?
-        # Load history for comparison
-        file_path = "history.json"
-        if os.path.exists(file_path):
-            with open(file_path, "r") as f:
-                try:
-                    data = json.load(f)
-                    if not isinstance(data, list):
-                        data = [data]
-                except json.JSONDecodeError:
-                    data = []
-        else:
-            data = []
-
-        # Determine status
-        if len(data) == 0:
-            status = "Initial"
-            id_num = 1
-            previous_sci_per_loc = None
-        else:
-            id_num = data[-1]["id"] + 1
-            previous_sci_per_loc = data[-1].get("sci_gCO2eq_per_line")
-            status = determine_green_status(
-                green_metrics["sci_gCO2eq_per_line"],
-                previous_sci_per_loc
-            )
-        
-        # Calculate improvement percentage
-        if previous_sci_per_loc and previous_sci_per_loc > 0:
-            improvement = ((previous_sci_per_loc - green_metrics["sci_gCO2eq_per_line"]) 
-                          / previous_sci_per_loc) * 100
-        else:
-            improvement = None
-
-        # Create metric entry
-        metric = {
-            "id": id_num,
-            "date_time": str(datetime.now()),
-            "target_file": str(target_file),
-            "duration_seconds": duration,
-            "emission_kg": avg_emission,
-            "energy_consumed_kWh": avg_energy,
-            "region": region,
-            "country_name": country_name,
-            "emissions_rate_gCO2eq_per_kWh": emissions_rate_grams,
-            "total_emissions_gCO2eq": green_metrics["total_emissions_gCO2eq"],
-            "lines_of_code": green_metrics["total_loc_code_smells"],
-            "sci_gCO2eq_per_line": green_metrics["sci_gCO2eq_per_line"],
-            "status": status,
-            "cfp": cosmic_cfp,
-            "sci_per_cfp": sci_per_cfp,
-            "improvement_percent": improvement
-        }
-        
-        data.append(metric)
-        json_str = json.dumps(data, indent=4)
-        with open(file_path, "w") as f:
-            f.write(json_str)
-        
-        # TODO: Extract to new method like display_carbon_report()?
-        # Display results
-        print("\n" + "=" * BREAK_LINE_NO)
-        print("🌍 GREEN CODE CARBON EMISSIONS REPORT 🌍")
-        print("=" * BREAK_LINE_NO)
-        print(f"\n📋 Execution Details:")
-        print(f"  Target file: {target_file}")
-        print(f"  Duration: {duration:.2f} seconds")
-        print(f"\n⚡ Energy & Emissions:")
-        print(f"  Total energy consumed: {avg_energy:.6f} kWh")
-        print(f"  Carbon emissions: {avg_emission:.6e} kg CO2")
-        print(f"  Emissions rate: {emissions_rate_grams:.2f} gCO2eq/kWh")
-        print(f"  Region: {region}")
-        print(f"  Country: {country_name}")
-        print(f"\n📊 Code Metrics:")
-        print(f"  COSMIC Function Points: {cosmic_cfp} CFP")
-        print(f"  Total lines of code: {green_metrics['total_loc_code_smells']} LOC")
-        print(f"\n🌱 SCI Metrics (Software Carbon Intensity):")
-        print(f"  ├─ Per line of code: {green_metrics['sci_gCO2eq_per_line']:.8f} gCO2eq/LOC")
-        print(f"  │  ℹ️  Lower is greener! Shorter code = lower carbon footprint")
-        print(f"  ├─ Per cosmic function point: {sci_per_cfp:.8f} gCO2eq/cfp")
-        print(f"  │  ℹ️  Lower is greener! less data movement = less carbon footprint")
-        print(f"  └─")
-        
-        # print(f"\n📈 Status: {status}")
-        # if improvement is not None:
-        #     print(f"   Previous: {previous_sci_per_loc:6e}")
-        #     print(f"   Now: {green_metrics["sci_gCO2eq_per_line"]:6e}")
-        #     if improvement > 0:
-        #         print(f"   Decrease Carbon emission around: {abs(improvement):.2f}%")
-        #     else:
-        #         print(f"   Increase Carbon emission around: {abs(improvement):.2f}%")
-
-        impact_analysis(data, avg_emission, total_loc)
-        
+    _print_program_output(result)
+    if _process_carbon_runs(target_file, all_runs, result, duration, total_loc):
         print("=" * BREAK_LINE_NO)
 
 
