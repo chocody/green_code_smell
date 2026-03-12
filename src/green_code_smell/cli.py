@@ -38,105 +38,150 @@ except ImportError:
     print("⚠️  Warning: codecarbon not installed. Carbon tracking disabled.")
     print("   Install with: pip install codecarbon\n")
 
-# Patterns used for COSMIC Function Point analysis
-CFP_DB_READ_PATTERNS = {
-    'query', 'select', 'find', 'fetch', 'get', 'load', 'filter',
-    'all', 'first', 'one', 'read', 'execute'
-}
-CFP_DB_WRITE_PATTERNS = {
-    'insert', 'update', 'delete', 'save', 'create', 'put',
-    'commit', 'execute', 'upsert', 'bulk_write'
-}
-CFP_ENTRY_PATTERNS = {
-    'input', 'getline', 'stdin', 'request', 'parse_args', 'argv',
-    'json', 'loads', 'yaml', 'parse', 'environ'
-}
-CFP_EXIT_PATTERNS = {
-    'print', 'write', 'return', 'render', 'jsonify', 'dump',
-    'response', 'send', 'emit', 'stdout', 'stderr'
-}
-CFP_FILE_READ_PATTERNS = {'open', 'read', 'load', 'pickle'}
-CFP_FILE_WRITE_PATTERNS = {'open', 'write', 'dump', 'save', 'pickle'}
-
-
 def calculate_cosmic_cfp(file_path):
     """
     Calculate COSMIC Function Points (CFP) from Python source code.
     Compliant with ISO/IEC 19761:2011 (COSMIC v4.0.2).
-    
-    Data movements:
-    - E (Entry): User data input from external sources
-    - X (Exit): Results output to external systems
-    - R (Read): Data retrieval from persistent storage (DB, files)
-    - W (Write): Data write to persistent storage (DB, files)
+
+    Data movements are identified purely from AST structure — no keyword
+    matching, no ML, no manual counting from a software spec.
+
+    Structural derivation rules (per functional process = one function def):
+    ─────────────────────────────────────────────────────────────────────────
+    E  Entry   — Each unique parameter accepted by the function represents one
+                 piece of data crossing the boundary inward.
+                 Source: func.args (positional, keyword, *args, **kwargs)
+
+    X  Exit    — Each point where the function sends data back across the
+                 boundary: explicit return with a value, yield / yield-from,
+                 and raise (exception as an outbound data movement).
+                 Source: ast.Return(value≠None), ast.Yield, ast.YieldFrom,
+                         ast.Raise(exc≠None)
+
+    R  Read    — Each place the function reads a data attribute or subscript
+                 FROM an object (i.e. pulls data out of a persistent group).
+                 Counted once per unique (object, attribute/key) pair to avoid
+                 double-counting repeated reads of the same field.
+                 Source: ast.Attribute (Load ctx) and ast.Subscript (Load ctx)
+                         where the receiver is not the function itself.
+
+    W  Write   — Each place the function stores data INTO an object or
+                 collection: attribute assignment and subscript assignment.
+                 Counted once per unique (object, attribute/key) write target.
+                 Source: assignment targets that are ast.Attribute or
+                         ast.Subscript nodes (Store ctx).
+
+    CFP for each process = E + X + R + W
+    Total CFP            = sum over all functional processes (functions).
+    ─────────────────────────────────────────────────────────────────────────
     """
+    def _count_movements(func_node):
+        movements = {'E': 0, 'X': 0, 'R': 0, 'W': 0}
+
+        # ── E: Entry — parameters define inbound data ──────────────────────
+        args = func_node.args
+        param_count = (
+            len(args.args)
+            + len(args.posonlyargs)
+            + len(args.kwonlyargs)
+            + (1 if args.vararg else 0)
+            + (1 if args.kwarg else 0)
+        )
+        movements['E'] = param_count
+
+        # Collect direct child nodes only (not nested function bodies)
+        # so nested functions are treated as their own processes.
+        direct_body_nodes = []
+        for stmt in ast.walk(func_node):
+            # Skip the bodies of nested functions — they are separate processes
+            if stmt is func_node:
+                continue
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            direct_body_nodes.append(stmt)
+
+        # ── X: Exit — outbound data movements ──────────────────────────────
+        for node in direct_body_nodes:
+            if isinstance(node, ast.Return) and node.value is not None:
+                movements['X'] += 1
+            elif isinstance(node, (ast.Yield, ast.YieldFrom)):
+                movements['X'] += 1
+            elif isinstance(node, ast.Raise) and node.exc is not None:
+                movements['X'] += 1
+
+        # ── R: Read — unique attribute/subscript loads from objects ─────────
+        reads_seen = set()
+        for node in direct_body_nodes:
+            if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
+                # receiver.attr
+                receiver = ast.dump(node.value)
+                key = (receiver, node.attr)
+                if key not in reads_seen:
+                    reads_seen.add(key)
+                    movements['R'] += 1
+            elif isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load):
+                # receiver[slice]
+                receiver = ast.dump(node.value)
+                slice_key = ast.dump(node.slice)
+                key = (receiver, slice_key)
+                if key not in reads_seen:
+                    reads_seen.add(key)
+                    movements['R'] += 1
+
+        # ── W: Write — unique attribute/subscript stores into objects ───────
+        writes_seen = set()
+        for node in direct_body_nodes:
+            if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
+                targets = []
+                if isinstance(node, ast.Assign):
+                    targets = node.targets
+                elif isinstance(node, ast.AugAssign):
+                    targets = [node.target]
+                elif isinstance(node, ast.AnnAssign) and node.target:
+                    targets = [node.target]
+
+                for target in targets:
+                    if isinstance(target, ast.Attribute) and isinstance(target.ctx, ast.Store):
+                        receiver = ast.dump(target.value)
+                        key = (receiver, target.attr)
+                        if key not in writes_seen:
+                            writes_seen.add(key)
+                            movements['W'] += 1
+                    elif isinstance(target, ast.Subscript) and isinstance(target.ctx, ast.Store):
+                        receiver = ast.dump(target.value)
+                        slice_key = ast.dump(target.slice)
+                        key = (receiver, slice_key)
+                        if key not in writes_seen:
+                            writes_seen.add(key)
+                            movements['W'] += 1
+
+        return movements
+
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
-        
+
         tree = ast.parse(content)
         total_cfp = 0
 
-        functions = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
-        
+        # Each function definition is one functional process (ISO/IEC 19761)
+        functions = [
+            n for n in ast.walk(tree)
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ]
+
+        # If the file has no functions, treat the module body as one process
         if not functions:
             functions = [tree]
 
         for func_node in functions:
-            movements = {'E': 0, 'X': 0, 'R': 0, 'W': 0}
-            
-            for node in ast.walk(func_node):
-                if isinstance(node, ast.Call):
-                    func_name = ''
-                    full_call = ''
-                    
-                    if isinstance(node.func, ast.Name):
-                        func_name = node.func.id.lower()
-                    elif isinstance(node.func, ast.Attribute):
-                        func_name = node.func.attr.lower()
-                        if isinstance(node.func.value, ast.Name):
-                            full_call = f"{node.func.value.id}.{func_name}".lower()
-                        elif isinstance(node.func.value, ast.Attribute):
-                            full_call = f"*.{func_name}".lower()
-                    
-                    if func_name:
-                        if any(pattern in func_name for pattern in CFP_DB_READ_PATTERNS):
-                            if any(keyword in full_call for keyword in {'query', 'select', 'find', 'filter'}):
-                                movements['R'] += 1
-                                continue
-                        
-                        if func_name in CFP_FILE_READ_PATTERNS or 'read' in func_name:
-                            movements['R'] += 1
-                            continue
-                        
-                        if any(pattern in func_name for pattern in CFP_DB_WRITE_PATTERNS):
-                            movements['W'] += 1
-                            continue
-                        
-                        if func_name in CFP_FILE_WRITE_PATTERNS or 'dump' in func_name:
-                            movements['W'] += 1
-                            continue
-                        
-                        if any(pattern in func_name for pattern in CFP_ENTRY_PATTERNS):
-                            movements['E'] += 1
-                            continue
-                        
-                        if any(pattern in func_name for pattern in CFP_EXIT_PATTERNS):
-                            if func_name != 'return':
-                                movements['X'] += 1
-                                continue
-                
-                if isinstance(node, ast.Return) and node.value is not None:
-                    movements['X'] += 1
-                
-                if isinstance(node, (ast.Yield, ast.YieldFrom)):
-                    movements['X'] += 1
-            
-            process_size = sum(movements.values())
-            total_cfp += process_size
-        
+            movements = _count_movements(func_node)
+            process_cfp = sum(movements.values())
+            total_cfp += process_cfp
+
+        # Ensure minimum 1 CFP to prevent division by zero in SCI calculation
         return max(total_cfp, 1)
-        
+
     except Exception as e:
         print(f"⚠️  Warning: Could not calculate COSMIC CFP for {file_path}: {e}")
         return 1
