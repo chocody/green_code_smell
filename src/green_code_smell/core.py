@@ -1,6 +1,7 @@
 import ast
 from pathlib import Path
 
+
 def analyze_file(file_path, rules, project_root=None):
     """Analyze a single file with given rules"""
     code = Path(file_path).read_text()
@@ -23,6 +24,7 @@ def analyze_file(file_path, rules, project_root=None):
             issues.extend(rule.check(tree))
 
     return issues
+
 
 def analyze_project(project_path, rules):
     """Analyze entire project - used for project-wide rules like DeadCodeRule"""
@@ -54,12 +56,3 @@ def analyze_project(project_path, rules):
                         pass
     
     return issues
-
-def code_info(file_path):
-    code = Path(file_path).read_text()
-    tree = ast.parse(code)
-    return {
-        "lines": len(code.splitlines()),
-        "functions": sum(isinstance(node, ast.FunctionDef) for node in ast.walk(tree)),
-        "classes": sum(isinstance(node, ast.ClassDef) for node in ast.walk(tree)),
-    }
