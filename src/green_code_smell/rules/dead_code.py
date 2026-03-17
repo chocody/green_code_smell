@@ -5,7 +5,7 @@ class DeadCodeRule:
     id = "GCS005"
     name = "DeadCode"
     description = "Detects unreachable code and unused definitions."
-    severity = "Medium"
+    severity = "High"
     
     def __init__(self, project_root=None):
         self.project_root = project_root

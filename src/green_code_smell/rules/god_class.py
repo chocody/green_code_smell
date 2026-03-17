@@ -4,7 +4,7 @@ class GodClassRule:
     id = "GCS002"
     name = "GodClass"
     description = "Detects classes that have too many responsibilities (God Class anti-pattern)."
-    severity = "High"
+    severity = "Medium"
     
     def __init__(self, max_methods=10, max_cc=35, max_loc=100):
         self.max_methods = max_methods

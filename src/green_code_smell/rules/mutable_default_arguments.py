@@ -4,7 +4,7 @@ class MutableDefaultArgumentsRule:
     id = "GCS006"
     name = "MutableDefaultArguments"
     description = "Detects functions that use mutable default arguments."
-    severity = "Medium"
+    severity = "Low"
 
     def check(self, tree):
         issues = []

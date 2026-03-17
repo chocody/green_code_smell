@@ -4,7 +4,7 @@ class LongMethodRule:
     id = "GCS004"
     name = "LongMethod"
     description = "Detects methods that are too long based on LOC and cyclomatic complexity."
-    severity = "Medium"
+    severity = "High"
     
     def __init__(self, max_loc=30, max_cc=10):
         self.max_loc = max_loc
