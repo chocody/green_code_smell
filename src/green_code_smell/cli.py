@@ -182,71 +182,146 @@ def determine_green_status(current_sci_per_exec, previous_sci_per_exec):
         return "Normal"
 
 
-def impact_analysis(data, avg_emission, total_loc):
+SMELL_NATURE = {
+    "DeadCode":                 "compile/load overhead only, not executed at runtime",
+    "DuplicatedCode":           "redundant execution, wastes CPU cycles",
+    "GodClass":                 "structural complexity, increases maintenance & energy",
+    "LongMethod":               "high complexity, harder to optimize by interpreter",
+    "MutableDefaultArguments":  "minimal runtime impact, but a correctness risk",
+}
+
+
+def impact_analysis(data, avg_emission, is_different_file=False):
     """
-    Display code smell LOC vs carbon emission analysis comparing previous and current runs.
+    Display code smell removal and carbon emission analysis comparing previous and current runs.
+    Uses diff-based attribution: the real measured carbon difference is distributed
+    proportionally among removed smells by their LOC.
     """
-    print(f"\n📊 Code Smell LOC vs Carbon Emission Analysis")
-    if len(data) >= 2:
-        previous_emission = data[-2].get("emission_kg")
-        previous_loc = data[-2].get("lines_of_code", 0)
-        current_loc = total_loc if total_loc else 0
-        
-        carbon_diff = previous_emission - avg_emission
-        loc_diff = previous_loc - current_loc
-        
-        print(f"\n   Previous Run:")
-        print(f"      Carbon Emission: {previous_emission:.6e} kg CO2")
-        print(f"      Code Smell LOC:  {previous_loc} LOC")
-        if previous_loc > 0:
-            print(f"      Carbon per LOC:  {previous_emission / previous_loc:.6e} kg CO2/LOC")
-        
-        print(f"\n   Current Run:")
+    print(f"\n📊 Code Smell & Carbon Emission Analysis")
+
+    current = data[-1]
+    current_smell = current.get("smell_breakdown", {})
+
+    if is_different_file and len(data) >= 2:
+        previous = data[-2]
+        print(f"\n   ⚠️  Different file detected!")
+        print(f"      Previous: {previous.get('target_file')}")
+        print(f"      Current:  {current.get('target_file')}")
+        print(f"      Cannot compare before/after results.")
+        print(f"      Treating current file as new initial baseline for future comparisons.")
+        print(f"\n   Current Run (New Initial):")
         print(f"      Carbon Emission: {avg_emission:.6e} kg CO2")
-        print(f"      Code Smell LOC:  {current_loc} LOC")
-        if current_loc > 0:
-            print(f"      Carbon per LOC:  {avg_emission / current_loc:.6e} kg CO2/LOC")
+        if current_smell:
+            print(f"\n   Code Smells Detected:")
+            for rule, info in sorted(current_smell.items()):
+                print(f"      {rule}: {info['count']} issue(s)")
         else:
-            print(f"      ✅ All code smells fixed! (0 LOC)")
-        
-        print(f"\n   Impact Analysis:")
-        
-        if loc_diff > 0:
-            loc_status = f"✅ Code smells reduced by {loc_diff} LOC"
-        elif loc_diff < 0:
-            loc_status = f"⚠️  Code smells increased by {abs(loc_diff)} LOC"
-        else:
-            loc_status = f"➡️  Code smell LOC unchanged ({current_loc} LOC)"
-        
-        if carbon_diff > 0:
-            carbon_status = f"✅ Carbon emission decreased by {carbon_diff:.6e} kg CO2"
-        elif carbon_diff < 0:
-            carbon_status = f"⚠️  Carbon emission increased by {abs(carbon_diff):.6e} kg CO2"
-        else:
-            carbon_status = f"➡️  Carbon emission unchanged"
-        
-        print(f"      {loc_status}")
-        print(f"      {carbon_status}")
-        
-        if loc_diff != 0 and carbon_diff != 0:
-            if (loc_diff > 0 and carbon_diff > 0) or (loc_diff < 0 and carbon_diff < 0):
-                metric = abs(carbon_diff) / abs(loc_diff)
-                if loc_diff > 0:
-                    print(f"      📉 Carbon saved per LOC removed: {metric:.6e} kg CO2/LOC")
-                    print(f"      💡 Less code smell = Less carbon emission!")
+            print(f"      ✅ No code smells detected!")
+        print(f"      ℹ️  No comparison available (different file)")
+        return
+
+    if len(data) >= 2:
+        previous = data[-2]
+        previous_emission = previous.get("emission_kg")
+        previous_smell = previous.get("smell_breakdown", {})
+
+        all_rules = sorted(set(list(previous_smell.keys()) + list(current_smell.keys())))
+
+        smells_removed = False
+        smells_added = False
+        removed_smells_detail = {}
+
+        if all_rules:
+            print(f"\n   🔍 Code Smell Changes (Before → After):")
+            for rule in all_rules:
+                prev_count = previous_smell.get(rule, {}).get("count", 0)
+                curr_count = current_smell.get(rule, {}).get("count", 0)
+                prev_loc = previous_smell.get(rule, {}).get("loc", 0)
+                curr_loc = current_smell.get(rule, {}).get("loc", 0)
+                count_diff = prev_count - curr_count
+                loc_diff = prev_loc - curr_loc
+
+                if count_diff > 0:
+                    print(f"      ✅ {rule}: removed {count_diff} issue(s) ({prev_count} → {curr_count})")
+                    smells_removed = True
+                    if loc_diff > 0:
+                        removed_smells_detail[rule] = loc_diff
+                elif count_diff < 0:
+                    print(f"      ⚠️  {rule}: added {abs(count_diff)} issue(s) ({prev_count} → {curr_count})")
+                    smells_added = True
                 else:
-                    print(f"      📈 Carbon increase per LOC added: {metric:.6e} kg CO2/LOC")
-                    print(f"      💡 More code smell = More carbon emission")
-            else:
-                print(f"      ℹ️  Carbon change may be due to other factors")
-        elif loc_diff == 0 and carbon_diff != 0:
-            print(f"      ℹ️  Carbon change from other optimizations/factors")
+                    if curr_count == 0:
+                        continue
+                    print(f"      ➡️  {rule}: unchanged ({curr_count} issue(s))")
+
+            if not any(current_smell.values()) and not any(previous_smell.values()):
+                print(f"      ✅ No code smells in either run!")
+            elif not any(current_smell.values()):
+                print(f"      ✅ All code smells fixed!")
+        else:
+            print(f"\n      ✅ No code smells in either run!")
+
+        carbon_diff = previous_emission - avg_emission
+
+        print(f"\n   🌍 Carbon Emission Comparison:")
+        print(f"      Previous: {previous_emission:.6e} kg CO2")
+        print(f"      Current:  {avg_emission:.6e} kg CO2")
+
+        if carbon_diff > 0:
+            print(f"      ✅ Carbon emission decreased by {carbon_diff:.6e} kg CO2")
+        elif carbon_diff < 0:
+            print(f"      ⚠️  Carbon emission increased by {abs(carbon_diff):.6e} kg CO2")
+        else:
+            print(f"      ➡️  Carbon emission unchanged")
+
+        if smells_removed and removed_smells_detail:
+            total_removed_loc = sum(removed_smells_detail.values())
+
+            if carbon_diff > 0 and total_removed_loc > 0:
+                print(f"\n   📉 Estimated Carbon Savings per Removed Smell:")
+                print(f"      (Based on real carbon diff of {carbon_diff:.6e} kg CO2,")
+                print(f"       attributed proportionally by {total_removed_loc} LOC removed)")
+                print()
+                for rule in sorted(removed_smells_detail.keys()):
+                    loc_removed = removed_smells_detail[rule]
+                    proportion = loc_removed / total_removed_loc
+                    estimated_saving = carbon_diff * proportion
+                    nature = SMELL_NATURE.get(rule, "")
+                    pct = proportion * 100
+
+                    print(f"      {rule}:")
+                    print(f"         {loc_removed} LOC removed ({pct:.1f}% of total removed)")
+                    print(f"         Est. carbon saved: {estimated_saving:.6e} kg CO2")
+                    if nature:
+                        print(f"         Note: {nature}")
+
+                print(f"\n      💡 Less code smell = Less carbon emission!")
+
+            elif carbon_diff <= 0:
+                print(f"\n   📉 Removed Smell Detail:")
+                for rule in sorted(removed_smells_detail.keys()):
+                    loc_removed = removed_smells_detail[rule]
+                    nature = SMELL_NATURE.get(rule, "")
+                    print(f"      {rule}: {loc_removed} LOC removed")
+                    if nature:
+                        print(f"         Note: {nature}")
+
+                print(f"\n      ⚠️  Warning: Code smells were removed but carbon emission did not decrease.")
+                print(f"      This might be due to other factors (system load, background processes, etc.)")
+
+        elif smells_added and carbon_diff < 0:
+            print(f"\n      💡 More code smell = More carbon emission")
+        elif not smells_removed and not smells_added and carbon_diff != 0:
+            print(f"\n      ℹ️  Carbon change from other optimizations/factors")
     else:
         print(f"\n   Current Run (Initial):")
         print(f"      Carbon Emission: {avg_emission:.6e} kg CO2")
-        print(f"      Code Smell LOC:  {total_loc if total_loc else 0} LOC")
-        if total_loc and total_loc > 0:
-            print(f"      Carbon per LOC:  {avg_emission / total_loc:.6e} kg CO2/LOC")
+        if current_smell:
+            print(f"\n   Code Smells Detected:")
+            for rule, info in sorted(current_smell.items()):
+                print(f"      {rule}: {info['count']} issue(s)")
+        else:
+            print(f"      ✅ No code smells detected!")
         print(f"      ℹ️  No previous run to compare")
 
 
@@ -426,6 +501,25 @@ def count_total_loc_code_smells(all_results):
                 total_loc += (end_lineno - lineno + 1)
     
     return total_loc
+
+
+def compute_smell_breakdown(all_results):
+    """Compute code smell breakdown by rule from analysis results (count + LOC)."""
+    breakdown = {}
+    for issues in all_results.values():
+        for issue in issues:
+            rule = issue.get('rule', 'Unknown')
+            if rule not in breakdown:
+                breakdown[rule] = {"count": 0, "loc": 0}
+            breakdown[rule]["count"] += 1
+            if rule == 'MutableDefaultArguments':
+                breakdown[rule]["loc"] += 1
+            else:
+                lineno = issue.get('lineno')
+                end_lineno = issue.get('end_lineno', lineno)
+                if lineno and end_lineno:
+                    breakdown[rule]["loc"] += (end_lineno - lineno + 1)
+    return breakdown
 
 
 def analyze_code_smells(path, args):
@@ -609,6 +703,7 @@ def save_metric_to_history(
     emissions_rate_grams,
     green_metrics,
     cosmic_cfp,
+    smell_breakdown=None,
 ):
     """Persist the computed green metrics into the history file."""
     if os.path.exists(history_path):
@@ -622,16 +717,30 @@ def save_metric_to_history(
     else:
         data = []
 
+    is_different_file = False
+
     if len(data) == 0:
         status = "Initial"
         id_num = 1
         previous_sci_per_loc = None
     else:
         id_num = data[-1]["id"] + 1
-        previous_sci_per_loc = data[-1].get("sci_gCO2eq_per_line")
-        status = determine_green_status(
-            green_metrics["sci_gCO2eq_per_line"], previous_sci_per_loc
-        )
+        previous_target = data[-1].get("target_file")
+
+        if previous_target:
+            prev_path = str(Path(previous_target).resolve())
+            curr_path = str(Path(target_file).resolve())
+            if prev_path != curr_path:
+                is_different_file = True
+
+        if is_different_file:
+            status = "Initial"
+            previous_sci_per_loc = None
+        else:
+            previous_sci_per_loc = data[-1].get("sci_gCO2eq_per_line")
+            status = determine_green_status(
+                green_metrics["sci_gCO2eq_per_line"], previous_sci_per_loc
+            )
 
     if previous_sci_per_loc and previous_sci_per_loc > 0:
         improvement = (
@@ -658,6 +767,7 @@ def save_metric_to_history(
         "cfp":                           cosmic_cfp,
         "sci_per_cfp":                   green_metrics.get("sci_per_cfp", None),
         "improvement_percent":           improvement,
+        "smell_breakdown":               smell_breakdown,
     }
 
     data.append(metric)
@@ -665,7 +775,7 @@ def save_metric_to_history(
     with open(history_path, "w") as f:
         json.dump(data, f, indent=4)
 
-    return data
+    return data, is_different_file
 
 
 def display_carbon_report(
@@ -758,7 +868,7 @@ def _print_program_output(result):
         print(f"\n⚠️  Program exited with code {result.returncode}")
 
 
-def _process_carbon_runs(target_file, all_runs, result, duration, total_loc):
+def _process_carbon_runs(target_file, all_runs, result, duration, total_loc, smell_breakdown=None):
     """Compute averages, green metrics, save history, and display report."""
     averages = compute_average_run_data(all_runs)
     if not averages:
@@ -785,7 +895,7 @@ def _process_carbon_runs(target_file, all_runs, result, duration, total_loc):
     green_metrics_with_context["country_name"] = country_name
     green_metrics_with_context["sci_per_cfp"]  = sci_per_cfp
 
-    data = save_metric_to_history(
+    data, is_different_file = save_metric_to_history(
         "history.json",
         target_file,
         duration,
@@ -794,6 +904,7 @@ def _process_carbon_runs(target_file, all_runs, result, duration, total_loc):
         emissions_rate_grams,
         green_metrics_with_context,
         cosmic_cfp,
+        smell_breakdown,
     )
     display_carbon_report(
         target_file,
@@ -807,7 +918,7 @@ def _process_carbon_runs(target_file, all_runs, result, duration, total_loc):
         cosmic_cfp,
         sci_per_cfp,
     )
-    impact_analysis(data, avg_emission, total_loc)
+    impact_analysis(data, avg_emission, is_different_file)
     return True
 
 
@@ -951,7 +1062,7 @@ def display_per_function_report(functions: list):
     print("=" * BREAK_LINE_NO)
 
 
-def carbon_track(path, args, total_loc=0):
+def carbon_track(path, args, total_loc=0, smell_breakdown=None):
     """
     Track carbon emissions for running the target application.
 
@@ -984,15 +1095,15 @@ def carbon_track(path, args, total_loc=0):
 
     _print_program_output(result)
 
-    if _process_carbon_runs(target_file, all_runs, result, duration, total_loc):
+    if _process_carbon_runs(target_file, all_runs, result, duration, total_loc, smell_breakdown):
         print("=" * BREAK_LINE_NO)
 
     # ── Phase 2: per-function breakdown ───────────────────────────────────
-    if not args.no_per_function:
-        print(f"\n🔬 Running per-function carbon analysis (1 run)...")
-        print("-" * BREAK_LINE_NO)
-        functions = run_with_per_function_carbon(target_file)
-        display_per_function_report(functions)
+    # if not args.no_per_function:
+    #     print(f"\n🔬 Running per-function carbon analysis (1 run)...")
+    #     print("-" * BREAK_LINE_NO)
+    #     functions = run_with_per_function_carbon(target_file)
+    #     display_per_function_report(functions)
 
 
 def main():
@@ -1101,7 +1212,8 @@ Examples:
         args.dup_check_between = True
 
     all_result, total_loc = analyze_code_smells(args.path, args)
-    carbon_track(args.path, args, total_loc)
+    smell_breakdown = compute_smell_breakdown(all_result)
+    carbon_track(args.path, args, total_loc, smell_breakdown)
 
     print("\n✨ Analysis complete.\n")
 

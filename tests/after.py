@@ -104,6 +104,10 @@ class Company:
     def find_employees(self, role: Role) -> List[Employee]:
         """Find all employees with a particular role in the employee list"""
         return [employee for employee in self.employees if employee.role is role]
+    
+    def find_employees_by_name(self, name: str) -> List[Employee]:
+        """Find all employees with a particular name in the employee list"""
+        return [employee for employee in self.employees if employee.name == name]
 
 
 def main() -> None:
