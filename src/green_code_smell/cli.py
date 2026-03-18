@@ -78,30 +78,33 @@ def calculate_cosmic_cfp(file_path):
     def _count_movements(func_node):
         movements = {'E': 0, 'X': 0, 'R': 0, 'W': 0}
 
-        # ── E: Entry — parameters define inbound data ──────────────────────
+        # ── E: Entry — parameters ─────────────────────────────────────────────
         args = func_node.args
-        param_count = (
+        movements['E'] = (
             len(args.args)
             + len(args.posonlyargs)
             + len(args.kwonlyargs)
             + (1 if args.vararg else 0)
             + (1 if args.kwarg else 0)
         )
-        movements['E'] = param_count
 
-        # Collect direct child nodes only (not nested function bodies)
-        # so nested functions are treated as their own processes.
-        direct_body_nodes = []
-        for stmt in ast.walk(func_node):
-            # Skip the bodies of nested functions — they are separate processes
-            if stmt is func_node:
-                continue
-            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            direct_body_nodes.append(stmt)
+        # ── Collect direct statements only (exclude nested function bodies) ───
+        def collect_stmts(stmts):
+            """Yield statement nodes, but do NOT descend into nested func defs."""
+            for stmt in stmts:
+                yield stmt
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                for child in ast.iter_child_nodes(stmt):
+                    if isinstance(child, ast.stmt):
+                        yield from collect_stmts([child])
 
-        # ── X: Exit — outbound data movements ──────────────────────────────
-        for node in direct_body_nodes:
+        direct_stmts = list(collect_stmts(
+            func_node.body if hasattr(func_node, 'body') else []
+        ))
+
+        # ── X: Exit — outbound data movements ────────────────────────────────
+        for node in direct_stmts:
             if isinstance(node, ast.Return) and node.value is not None:
                 movements['X'] += 1
             elif isinstance(node, (ast.Yield, ast.YieldFrom)):
@@ -109,28 +112,47 @@ def calculate_cosmic_cfp(file_path):
             elif isinstance(node, ast.Raise) and node.exc is not None:
                 movements['X'] += 1
 
-        # ── R: Read — unique attribute/subscript loads from objects ─────────
+        # ── R: Read ──────────────────────────────────────────────────────────
         reads_seen = set()
-        for node in direct_body_nodes:
-            if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load):
-                # receiver.attr
-                receiver = ast.dump(node.value)
-                key = (receiver, node.attr)
-                if key not in reads_seen:
-                    reads_seen.add(key)
-                    movements['R'] += 1
-            elif isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load):
-                # receiver[slice]
-                receiver = ast.dump(node.value)
-                slice_key = ast.dump(node.slice)
-                key = (receiver, slice_key)
-                if key not in reads_seen:
-                    reads_seen.add(key)
-                    movements['R'] += 1
 
-        # ── W: Write — unique attribute/subscript stores into objects ───────
+        def _collect_reads_from_expr(expr):
+            if expr is None:
+                return
+            if isinstance(expr, ast.Attribute) and isinstance(expr.ctx, ast.Load):
+                key = (ast.dump(expr.value), expr.attr)
+                if key not in reads_seen:
+                    reads_seen.add(key)
+                    movements['R'] += 1
+                return
+            if isinstance(expr, ast.Subscript) and isinstance(expr.ctx, ast.Load):
+                key = (ast.dump(expr.value), ast.dump(expr.slice))
+                if key not in reads_seen:
+                    reads_seen.add(key)
+                    movements['R'] += 1
+                return
+            for child in ast.iter_child_nodes(expr):
+                if isinstance(child, ast.expr):
+                    _collect_reads_from_expr(child)
+
+        for node in direct_stmts:
+            if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
+                rhs = node.value if hasattr(node, 'value') else None
+                if rhs:
+                    _collect_reads_from_expr(rhs)
+            elif isinstance(node, ast.Return) and node.value is not None:
+                _collect_reads_from_expr(node.value)
+            elif isinstance(node, ast.Yield) and node.value is not None:
+                _collect_reads_from_expr(node.value)
+            elif isinstance(node, ast.Expr):
+                if isinstance(node.value, ast.Call):
+                    for arg in node.value.args:
+                        _collect_reads_from_expr(arg)
+                    for kw in node.value.keywords:
+                        _collect_reads_from_expr(kw.value)
+
+        # ── W: Write ─────────────────────────────────────────────────────────
         writes_seen = set()
-        for node in direct_body_nodes:
+        for node in direct_stmts:
             if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
                 targets = []
                 if isinstance(node, ast.Assign):
@@ -142,15 +164,12 @@ def calculate_cosmic_cfp(file_path):
 
                 for target in targets:
                     if isinstance(target, ast.Attribute) and isinstance(target.ctx, ast.Store):
-                        receiver = ast.dump(target.value)
-                        key = (receiver, target.attr)
+                        key = (ast.dump(target.value), target.attr)
                         if key not in writes_seen:
                             writes_seen.add(key)
                             movements['W'] += 1
                     elif isinstance(target, ast.Subscript) and isinstance(target.ctx, ast.Store):
-                        receiver = ast.dump(target.value)
-                        slice_key = ast.dump(target.slice)
-                        key = (receiver, slice_key)
+                        key = (ast.dump(target.value), ast.dump(target.slice))
                         if key not in writes_seen:
                             writes_seen.add(key)
                             movements['W'] += 1
@@ -164,13 +183,11 @@ def calculate_cosmic_cfp(file_path):
         tree = ast.parse(content)
         total_cfp = 0
 
-        # Each function definition is one functional process (ISO/IEC 19761)
         functions = [
             n for n in ast.walk(tree)
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
         ]
 
-        # If the file has no functions, treat the module body as one process
         if not functions:
             functions = [tree]
 
@@ -179,7 +196,6 @@ def calculate_cosmic_cfp(file_path):
             process_cfp = sum(movements.values())
             total_cfp += process_cfp
 
-        # Ensure minimum 1 CFP to prevent division by zero in SCI calculation
         return max(total_cfp, 1)
 
     except Exception as e:
