@@ -38,183 +38,144 @@ except ImportError:
     print("⚠️  Warning: codecarbon not installed. Carbon tracking disabled.")
     print("   Install with: pip install codecarbon\n")
 
-def _count_movements_detailed(func_node):
-    """
-    Count COSMIC data movements for a single function node and return both
-    the totals AND a list of trace records so callers can display exactly
-    which line each movement came from.
-
-    Each trace record is a dict:
-        { 'type': 'E'|'X'|'R'|'W', 'lineno': int, 'detail': str }
-
-    Returns (movements_dict, trace_list).
-    """
-    movements = {'E': 0, 'X': 0, 'R': 0, 'W': 0}
-    trace     = []                          # ordered list of movement records
-    func_line = getattr(func_node, 'lineno', 0)
-
-    # ── E: Entry — parameters ─────────────────────────────────────────────
-    args = func_node.args
-    for arg in (list(args.posonlyargs) + list(args.args) + list(args.kwonlyargs)):
-        movements['E'] += 1
-        trace.append({'type': 'E', 'lineno': func_line,
-                      'detail': f"param '{arg.arg}'"})
-    if args.vararg:
-        movements['E'] += 1
-        trace.append({'type': 'E', 'lineno': func_line,
-                      'detail': f"param '*{args.vararg.arg}'"})
-    if args.kwarg:
-        movements['E'] += 1
-        trace.append({'type': 'E', 'lineno': func_line,
-                      'detail': f"param '**{args.kwarg.arg}'"})
-
-    # ── Collect direct statements (skip nested func bodies) ───────────────
-    def collect_stmts(stmts):
-        for stmt in stmts:
-            yield stmt
-            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            for child in ast.iter_child_nodes(stmt):
-                if isinstance(child, ast.stmt):
-                    yield from collect_stmts([child])
-
-    direct_stmts = list(collect_stmts(
-        func_node.body if hasattr(func_node, 'body') else []
-    ))
-
-    # ── X: Exit — outbound data movements ─────────────────────────────────
-    for node in direct_stmts:
-        lineno = getattr(node, 'lineno', func_line)
-        if isinstance(node, ast.Return) and node.value is not None:
-            movements['X'] += 1
-            trace.append({'type': 'X', 'lineno': lineno, 'detail': 'return <value>'})
-        elif isinstance(node, ast.Yield):
-            movements['X'] += 1
-            trace.append({'type': 'X', 'lineno': lineno, 'detail': 'yield'})
-        elif isinstance(node, ast.YieldFrom):
-            movements['X'] += 1
-            trace.append({'type': 'X', 'lineno': lineno, 'detail': 'yield from'})
-        elif isinstance(node, ast.Raise) and node.exc is not None:
-            movements['X'] += 1
-            trace.append({'type': 'X', 'lineno': lineno, 'detail': 'raise <exc>'})
-
-    # ── R: Read ───────────────────────────────────────────────────────────
-    reads_seen = set()
-
-    def _collect_reads(expr, stmt_lineno):
-        if expr is None:
-            return
-        if isinstance(expr, ast.Attribute) and isinstance(expr.ctx, ast.Load):
-            key = (ast.dump(expr.value), expr.attr)
-            if key not in reads_seen:
-                reads_seen.add(key)
-                movements['R'] += 1
-                # Best effort: get the receiver name for the detail label
-                recv = ast.dump(expr.value)
-                try:
-                    recv = expr.value.id          # simple Name node
-                except AttributeError:
-                    try:
-                        recv = ast.unparse(expr.value)
-                    except Exception:
-                        pass
-                trace.append({'type': 'R',
-                              'lineno': getattr(expr, 'lineno', stmt_lineno),
-                              'detail': f"read {recv}.{expr.attr}"})
-            return
-        if isinstance(expr, ast.Subscript) and isinstance(expr.ctx, ast.Load):
-            key = (ast.dump(expr.value), ast.dump(expr.slice))
-            if key not in reads_seen:
-                reads_seen.add(key)
-                movements['R'] += 1
-                try:
-                    recv  = ast.unparse(expr.value)
-                    index = ast.unparse(expr.slice)
-                except Exception:
-                    recv  = ast.dump(expr.value)
-                    index = ast.dump(expr.slice)
-                trace.append({'type': 'R',
-                              'lineno': getattr(expr, 'lineno', stmt_lineno),
-                              'detail': f"read {recv}[{index}]"})
-            return
-        for child in ast.iter_child_nodes(expr):
-            if isinstance(child, ast.expr):
-                _collect_reads(child, stmt_lineno)
-
-    for node in direct_stmts:
-        lineno = getattr(node, 'lineno', func_line)
-        if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
-            rhs = node.value if hasattr(node, 'value') else None
-            if rhs:
-                _collect_reads(rhs, lineno)
-        elif isinstance(node, ast.Return) and node.value is not None:
-            _collect_reads(node.value, lineno)
-        elif isinstance(node, ast.Yield) and node.value is not None:
-            _collect_reads(node.value, lineno)
-        elif isinstance(node, ast.Expr):
-            if isinstance(node.value, ast.Call):
-                for arg in node.value.args:
-                    _collect_reads(arg, lineno)
-                for kw in node.value.keywords:
-                    _collect_reads(kw.value, lineno)
-
-    # ── W: Write ──────────────────────────────────────────────────────────
-    writes_seen = set()
-    for node in direct_stmts:
-        lineno = getattr(node, 'lineno', func_line)
-        if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
-            targets = []
-            if isinstance(node, ast.Assign):
-                targets = node.targets
-            elif isinstance(node, ast.AugAssign):
-                targets = [node.target]
-            elif isinstance(node, ast.AnnAssign) and node.target:
-                targets = [node.target]
-
-            for target in targets:
-                if isinstance(target, ast.Attribute) and isinstance(target.ctx, ast.Store):
-                    key = (ast.dump(target.value), target.attr)
-                    if key not in writes_seen:
-                        writes_seen.add(key)
-                        movements['W'] += 1
-                        try:
-                            recv = ast.unparse(target.value)
-                        except Exception:
-                            recv = ast.dump(target.value)
-                        trace.append({'type': 'W',
-                                      'lineno': getattr(target, 'lineno', lineno),
-                                      'detail': f"write {recv}.{target.attr}"})
-                elif isinstance(target, ast.Subscript) and isinstance(target.ctx, ast.Store):
-                    key = (ast.dump(target.value), ast.dump(target.slice))
-                    if key not in writes_seen:
-                        writes_seen.add(key)
-                        movements['W'] += 1
-                        try:
-                            recv  = ast.unparse(target.value)
-                            index = ast.unparse(target.slice)
-                        except Exception:
-                            recv  = ast.dump(target.value)
-                            index = ast.dump(target.slice)
-                        trace.append({'type': 'W',
-                                      'lineno': getattr(target, 'lineno', lineno),
-                                      'detail': f"write {recv}[{index}]"})
-
-    # Sort trace by line number for readability
-    trace.sort(key=lambda r: r['lineno'])
-    return movements, trace
-
-
 def calculate_cosmic_cfp(file_path):
     """
     Calculate COSMIC Function Points (CFP) from Python source code.
     Compliant with ISO/IEC 19761:2011 (COSMIC v4.0.2).
 
-    Returns the total CFP integer (kept for backward-compatibility).
-    Use calculate_cosmic_cfp_detailed() to also get per-function breakdowns.
+    Data movements are identified purely from AST structure — no keyword
+    matching, no ML, no manual counting from a software spec.
+
+    Structural derivation rules (per functional process = one function def):
+    ─────────────────────────────────────────────────────────────────────────
+    E  Entry   — Each unique parameter accepted by the function represents one
+                 piece of data crossing the boundary inward.
+                 Source: func.args (positional, keyword, *args, **kwargs)
+
+    X  Exit    — Each point where the function sends data back across the
+                 boundary: explicit return with a value, yield / yield-from,
+                 and raise (exception as an outbound data movement).
+                 Source: ast.Return(value≠None), ast.Yield, ast.YieldFrom,
+                         ast.Raise(exc≠None)
+
+    R  Read    — Each place the function reads a data attribute or subscript
+                 FROM an object (i.e. pulls data out of a persistent group).
+                 Counted once per unique (object, attribute/key) pair to avoid
+                 double-counting repeated reads of the same field.
+                 Source: ast.Attribute (Load ctx) and ast.Subscript (Load ctx)
+                         where the receiver is not the function itself.
+
+    W  Write   — Each place the function stores data INTO an object or
+                 collection: attribute assignment and subscript assignment.
+                 Counted once per unique (object, attribute/key) write target.
+                 Source: assignment targets that are ast.Attribute or
+                         ast.Subscript nodes (Store ctx).
 
     CFP for each process = E + X + R + W
     Total CFP            = sum over all functional processes (functions).
+    ─────────────────────────────────────────────────────────────────────────
     """
+    def _count_movements(func_node):
+        movements = {'E': 0, 'X': 0, 'R': 0, 'W': 0}
+
+        # ── E: Entry — parameters ─────────────────────────────────────────────
+        args = func_node.args
+        movements['E'] = (
+            len(args.args)
+            + len(args.posonlyargs)
+            + len(args.kwonlyargs)
+            + (1 if args.vararg else 0)
+            + (1 if args.kwarg else 0)
+        )
+
+        # ── Collect direct statements only (exclude nested function bodies) ───
+        def collect_stmts(stmts):
+            """Yield statement nodes, but do NOT descend into nested func defs."""
+            for stmt in stmts:
+                yield stmt
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                for child in ast.iter_child_nodes(stmt):
+                    if isinstance(child, ast.stmt):
+                        yield from collect_stmts([child])
+
+        direct_stmts = list(collect_stmts(
+            func_node.body if hasattr(func_node, 'body') else []
+        ))
+
+        # ── X: Exit — outbound data movements ────────────────────────────────
+        for node in direct_stmts:
+            if isinstance(node, ast.Return) and node.value is not None:
+                movements['X'] += 1
+            elif isinstance(node, (ast.Yield, ast.YieldFrom)):
+                movements['X'] += 1
+            elif isinstance(node, ast.Raise) and node.exc is not None:
+                movements['X'] += 1
+
+        # ── R: Read ──────────────────────────────────────────────────────────
+        reads_seen = set()
+
+        def _collect_reads_from_expr(expr):
+            if expr is None:
+                return
+            if isinstance(expr, ast.Attribute) and isinstance(expr.ctx, ast.Load):
+                key = (ast.dump(expr.value), expr.attr)
+                if key not in reads_seen:
+                    reads_seen.add(key)
+                    movements['R'] += 1
+                return
+            if isinstance(expr, ast.Subscript) and isinstance(expr.ctx, ast.Load):
+                key = (ast.dump(expr.value), ast.dump(expr.slice))
+                if key not in reads_seen:
+                    reads_seen.add(key)
+                    movements['R'] += 1
+                return
+            for child in ast.iter_child_nodes(expr):
+                if isinstance(child, ast.expr):
+                    _collect_reads_from_expr(child)
+
+        for node in direct_stmts:
+            if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
+                rhs = node.value if hasattr(node, 'value') else None
+                if rhs:
+                    _collect_reads_from_expr(rhs)
+            elif isinstance(node, ast.Return) and node.value is not None:
+                _collect_reads_from_expr(node.value)
+            elif isinstance(node, ast.Yield) and node.value is not None:
+                _collect_reads_from_expr(node.value)
+            elif isinstance(node, ast.Expr):
+                if isinstance(node.value, ast.Call):
+                    for arg in node.value.args:
+                        _collect_reads_from_expr(arg)
+                    for kw in node.value.keywords:
+                        _collect_reads_from_expr(kw.value)
+
+        # ── W: Write ─────────────────────────────────────────────────────────
+        writes_seen = set()
+        for node in direct_stmts:
+            if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
+                targets = []
+                if isinstance(node, ast.Assign):
+                    targets = node.targets
+                elif isinstance(node, ast.AugAssign):
+                    targets = [node.target]
+                elif isinstance(node, ast.AnnAssign) and node.target:
+                    targets = [node.target]
+
+                for target in targets:
+                    if isinstance(target, ast.Attribute) and isinstance(target.ctx, ast.Store):
+                        key = (ast.dump(target.value), target.attr)
+                        if key not in writes_seen:
+                            writes_seen.add(key)
+                            movements['W'] += 1
+                    elif isinstance(target, ast.Subscript) and isinstance(target.ctx, ast.Store):
+                        key = (ast.dump(target.value), ast.dump(target.slice))
+                        if key not in writes_seen:
+                            writes_seen.add(key)
+                            movements['W'] += 1
+
+        return movements
+
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
@@ -231,138 +192,15 @@ def calculate_cosmic_cfp(file_path):
             functions = [tree]
 
         for func_node in functions:
-            movements, _ = _count_movements_detailed(func_node)
-            total_cfp += sum(movements.values())
+            movements = _count_movements(func_node)
+            process_cfp = sum(movements.values())
+            total_cfp += process_cfp
 
         return max(total_cfp, 1)
 
     except Exception as e:
         print(f"⚠️  Warning: Could not calculate COSMIC CFP for {file_path}: {e}")
         return 1
-
-
-def calculate_cosmic_cfp_detailed(file_path):
-    """
-    Like calculate_cosmic_cfp() but also returns a list of per-function
-    breakdown dicts, each with:
-        {
-          'function': str,
-          'lineno':   int,
-          'E': int, 'X': int, 'R': int, 'W': int,
-          'cfp': int,
-          'trace': [ {'type', 'lineno', 'detail'}, ... ]
-        }
-    Returns (total_cfp, per_function_list).
-    """
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-
-        tree      = ast.parse(content)
-        total_cfp = 0
-        details   = []
-
-        functions = [
-            n for n in ast.walk(tree)
-            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-        ]
-
-        if not functions:
-            functions = [tree]
-
-        for func_node in functions:
-            movements, trace = _count_movements_detailed(func_node)
-            cfp = sum(movements.values())
-            total_cfp += cfp
-            details.append({
-                'function': getattr(func_node, 'name', '<module>'),
-                'lineno':   getattr(func_node, 'lineno', 0),
-                'E': movements['E'],
-                'X': movements['X'],
-                'R': movements['R'],
-                'W': movements['W'],
-                'cfp': cfp,
-                'trace': trace,
-            })
-
-        # Sort by CFP descending so the heaviest functions appear first
-        details.sort(key=lambda d: d['cfp'], reverse=True)
-        return max(total_cfp, 1), details
-
-    except Exception as e:
-        print(f"⚠️  Warning: Could not calculate COSMIC CFP details for {file_path}: {e}")
-        return 1, []
-
-
-def display_cfp_breakdown(details, file_path, total_cfp):
-    """
-    Print a per-function COSMIC CFP breakdown table showing every data
-    movement (E/X/R/W) with the line number and a short description —
-    similar in style to display_per_function_report().
-    """
-    if not details:
-        print("\n⚠️  No CFP breakdown data available.")
-        return
-
-    print("\n" + "=" * BREAK_LINE_NO)
-    print("🔭 COSMIC FUNCTION POINT (CFP) BREAKDOWN")
-    print(f"   File: {file_path}")
-    print("=" * BREAK_LINE_NO)
-
-    # ── Summary table (one row per function) ──────────────────────────────
-    print(f"\n  {'#':<4} {'Function':<28} {'Line':>5}  "
-          f"{'E':>4} {'X':>4} {'R':>4} {'W':>4}  {'CFP':>4}  {'% Total':>7}")
-    print(f"  {'-'*4} {'-'*28} {'-'*5}  "
-          f"{'-'*4} {'-'*4} {'-'*4} {'-'*4}  {'-'*4}  {'-'*7}")
-
-    for rank, row in enumerate(details, 1):
-        pct = (row['cfp'] / total_cfp * 100) if total_cfp else 0
-        print(f"  {rank:<4} {row['function'][:27]:<28} {row['lineno']:>5}  "
-              f"{row['E']:>4} {row['X']:>4} {row['R']:>4} {row['W']:>4}  "
-              f"{row['cfp']:>4}  ({pct:>5.1f}%)")
-
-    print(f"\n  {'Total CFP:':<42} {total_cfp:>4}")
-
-    # ── Per-function detail blocks ─────────────────────────────────────────
-    print("\n" + "=" * BREAK_LINE_NO)
-    print("📍 DATA MOVEMENT TRACE  (where each CFP point is counted)")
-    print("=" * BREAK_LINE_NO)
-
-    type_label = {
-        'E': 'E  Entry ',
-        'X': 'X  Exit  ',
-        'R': 'R  Read  ',
-        'W': 'W  Write ',
-    }
-    type_icon = {'E': '→', 'X': '←', 'R': '📖', 'W': '✏️ '}
-
-    for row in details:
-        if row['cfp'] == 0:
-            continue
-        pct = (row['cfp'] / total_cfp * 100) if total_cfp else 0
-        print(f"\n  ┌─ {row['function']}()  "
-              f"[line {row['lineno']}]  "
-              f"CFP = {row['cfp']}  ({pct:.1f}%)")
-        print(f"  │  E={row['E']}  X={row['X']}  R={row['R']}  W={row['W']}")
-        print(f"  │")
-
-        if not row['trace']:
-            print(f"  │  (no data movements detected)")
-        else:
-            for item in row['trace']:
-                icon  = type_icon.get(item['type'], '  ')
-                label = type_label.get(item['type'], item['type'])
-                print(f"  │  line {item['lineno']:>4}  {label}  {icon} {item['detail']}")
-
-        print(f"  └{'─' * (BREAK_LINE_NO - 4)}")
-
-    # ── Legend ─────────────────────────────────────────────────────────────
-    print(f"\n  Legend:")
-    print(f"    E (Entry)  → data crossing the boundary IN  (function parameters)")
-    print(f"    X (Exit)   ← data crossing the boundary OUT (return / yield / raise)")
-    print(f"    R (Read)   📖 reading an attribute or subscript from an object")
-    print(f"    W (Write)  ✏️  writing an attribute or subscript on an object")
-    print("=" * BREAK_LINE_NO)
 
 
 def calculate_green_metrics(
@@ -920,38 +758,6 @@ def display_carbon_report(
     print(f"  COSMIC Function Points: {cosmic_cfp} CFP")
     print(f"  Total lines of code: {green_metrics['total_loc_code_smells']} LOC")
 
-    # ── SCI formula breakdown ──────────────────────────────────────────────
-    total_emissions_g = green_metrics["total_emissions_gCO2eq"]
-    sci_per_line      = green_metrics["sci_gCO2eq_per_line"]
-    loc               = green_metrics["total_loc_code_smells"]
-
-    print(f"\n🧮 SCI Formula Breakdown  (SCI = ((E × I) + M) / R)")
-    print(f"  ─────────────────────────────────────────────────────────────")
-    print(f"  E  Energy consumed    : {avg_energy:.6f} kWh")
-    print(f"  I  Emissions factor   : {emissions_rate_grams:.2f} gCO₂eq/kWh")
-    print(f"  M  Embodied carbon    : 0 g  (not measured)")
-    print(f"  ─────────────────────────────────────────────────────────────")
-    print(f"  Total emissions (E×I) : {total_emissions_g:.6e} gCO₂eq")
-    print(f"")
-    print(f"  R₁ Functional size (CFP)  → SCI / CFP")
-    print(f"     SCI per CFP            : {sci_per_cfp:.6e} gCO₂eq / CFP")
-    print(f"     ↳ Each COSMIC Function Point costs {sci_per_cfp:.6e} gCO₂eq")
-    if cosmic_cfp > 1:
-        print(f"     ↳ {cosmic_cfp} CFP detected — larger codebase = proportionally more carbon per run")
-    print(f"")
-    if loc > 0:
-        print(f"  R₂ Code smell LOC         → SCI / LOC")
-        print(f"     SCI per LOC            : {sci_per_line:.6e} gCO₂eq / LOC")
-        print(f"     ↳ {loc} smell-affected lines drive {sci_per_line * loc:.6e} gCO₂eq total")
-    else:
-        print(f"  R₂ Code smell LOC         : 0 LOC  ✅ No code smells detected")
-    print(f"  ─────────────────────────────────────────────────────────────")
-    if sci_per_cfp > 0:
-        cfp_pct = (sci_per_cfp * cosmic_cfp / total_emissions_g * 100) if total_emissions_g else 0
-        print(f"  💡 CFP accounts for the full functional scope of the software.")
-        print(f"     Reducing CFP (e.g. removing unused functions/parameters) directly")
-        print(f"     lowers SCI/CFP — making the software greener per unit of functionality.")
-
 
 def _resolve_carbon_target_file(path, args):
     """Resolve which Python file to run for carbon tracking."""
@@ -1032,7 +838,7 @@ def _process_carbon_runs(target_file, all_runs, result, duration, total_loc):
         total_lines_of_code=total_loc,
         embodied_carbon=0,
     )
-    cosmic_cfp, cfp_details = calculate_cosmic_cfp_detailed(target_file)
+    cosmic_cfp  = calculate_cosmic_cfp(target_file)
     sci_per_cfp = (avg_energy * avg_emissions_rate * 1000) / cosmic_cfp if cosmic_cfp > 0 else 0
 
     green_metrics_with_context = dict(green_metrics)
@@ -1063,7 +869,6 @@ def _process_carbon_runs(target_file, all_runs, result, duration, total_loc):
         sci_per_cfp,
     )
     impact_analysis(data, avg_emission, total_loc)
-    display_cfp_breakdown(cfp_details, target_file, cosmic_cfp)
     return True
 
 
