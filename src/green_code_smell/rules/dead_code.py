@@ -5,7 +5,7 @@ class DeadCodeRule:
     id = "GCS005"
     name = "DeadCode"
     description = "Detects unreachable code and unused definitions."
-    severity = "Medium"
+    severity = "High"
     
     def __init__(self, project_root=None):
         self.project_root = project_root
@@ -68,8 +68,8 @@ class DeadCodeRule:
                     all_issues.append({
                         "rule": self.name,
                         "lineno": lineno,
-                        "end_lineno": end_lineno,
-                        "file": file_path,  # ✅ Added file field
+                        "end_lineno": end_lineno if end_lineno is not None else lineno,
+                        "file": file_path,
                         "message": f"Unused {def_type} '{name}' is never referenced. Suggest removing it."
                     })
         
@@ -102,7 +102,9 @@ class DeadCodeRule:
             elif isinstance(node, ast.Assign):
                 for target in node.targets:
                     if isinstance(target, ast.Name):
-                        definitions[target.id] = ('variable', target.lineno, target.end_lineno)
+                        # Use node.end_lineno if target has no end_lineno (e.g. ast.Name on older Python)
+                        end_lineno = getattr(target, 'end_lineno', None) or getattr(node, 'end_lineno', None) or target.lineno
+                        definitions[target.id] = ('variable', target.lineno, end_lineno)
         
         return definitions
     
@@ -174,10 +176,11 @@ class DeadCodeRule:
             
             # Check if used
             if name not in used:
+                # Ensure end_lineno is set so LOC count is at least 1
                 issues.append({
                     "rule": self.name,
                     "lineno": lineno,
-                    "end_lineno": end_lineno,
+                    "end_lineno": end_lineno if end_lineno is not None else lineno,
                     "message": f"Unused {def_type} '{name}' is never referenced. Suggest removing it."
                 })
     
@@ -215,10 +218,12 @@ class DeadCodeRule:
             
             # Report unreachable code after terminator
             elif terminator_found and not self._is_docstring(stmt, i):
+                # Ensure end_lineno is set so LOC count is at least 1
+                end_lineno = getattr(stmt, 'end_lineno', None) or stmt.lineno
                 issue = {
                     "rule": self.name,
                     "lineno": stmt.lineno,
-                    "end_lineno": stmt.end_lineno,
+                    "end_lineno": end_lineno,
                     "message": f"Unreachable code after statement at line {terminator_line}. Consider removing it."
                 }
                 # Add file field if in project mode
