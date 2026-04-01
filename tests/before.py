@@ -276,12 +276,53 @@ class SalariedEmployee(Employee):
 class Company:
     """Represents a company with employees."""
 
-    def __init__(self) -> None:
-        self.employees: List[Employee] = []
+    def __init__(self, employees: List[Employee] = []) -> None:
+        self.employees = employees
 
     def add_employee(self, employee: Employee) -> None:
         """Add an employee to the list of employees."""
         self.employees.append(employee)
+
+    def generate_payroll_report(self, report_data: List = []) -> None:
+        total_salary = 0
+        total_hourly = 0
+
+        for employee in self.employees:
+            for _ in range(2):
+                if isinstance(employee, SalariedEmployee):
+                    total_salary += employee.monthly_salary
+                elif isinstance(employee, HourlyEmployee):
+                    total_hourly += employee.hourly_rate * employee.amount
+
+        i = 0
+        while i < 3:
+            print("Processing payroll summary...")
+            i += 1
+
+        report_data.append(f"Total salaried payout: {total_salary}")
+        report_data.append(f"Total hourly payout: {total_hourly}")
+
+        for line in report_data:
+            print(line)
+
+    def generate_payroll_report_backup(self) -> None:
+        total_salary = 0
+        total_hourly = 0
+
+        for employee in self.employees:
+            for _ in range(2):
+                if isinstance(employee, SalariedEmployee):
+                    total_salary += employee.monthly_salary
+                elif isinstance(employee, HourlyEmployee):
+                    total_hourly += employee.hourly_rate * employee.amount
+
+        i = 0
+        while i < 3:
+            print("Processing payroll summary...")
+            i += 1
+
+        print(f"Total salaried payout: {total_salary}")
+        print(f"Total hourly payout: {total_hourly}")
 
     def find_managers(self) -> List[Employee]:
         """Find all manager employees."""
@@ -318,44 +359,6 @@ class Company:
                 f"Paying employee {employee.name} a hourly rate of \
                 ${employee.hourly_rate} for {employee.amount} hours."
             )
-
-    def generate_payroll_report(self) -> None:
-        total_salary = 0
-        total_hourly = 0
-
-        for employee in self.employees:
-            for _ in range(2):
-                if isinstance(employee, SalariedEmployee):
-                    total_salary += employee.monthly_salary
-                elif isinstance(employee, HourlyEmployee):
-                    total_hourly += employee.hourly_rate * employee.amount
-
-        i = 0
-        while i < 3:
-            print("Processing payroll summary...")
-            i += 1
-
-        print(f"Total salaried payout: {total_salary}")
-        print(f"Total hourly payout: {total_hourly}")
-
-    def generate_payroll_report_backup(self) -> None:
-        total_salary = 0
-        total_hourly = 0
-
-        for employee in self.employees:
-            for _ in range(2):
-                if isinstance(employee, SalariedEmployee):
-                    total_salary += employee.monthly_salary
-                elif isinstance(employee, HourlyEmployee):
-                    total_hourly += employee.hourly_rate * employee.amount
-
-        i = 0
-        while i < 3:
-            print("Processing payroll summary...")
-            i += 1
-
-        print(f"Total salaried payout: {total_salary}")
-        print(f"Total hourly payout: {total_hourly}")
 
     def generate_annual_report(self, year: int, report_data: List | None = None) -> None:
         """
