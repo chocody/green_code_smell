@@ -1,149 +1,121 @@
 # PyGreenSense
 
-A Python code analysis tool that detects various code smells and quality issues in your codebase. It helps you write cleaner, more maintainable code by identifying problematic patterns.
+PyGreenSense is a Python code analysis tool that detects code smells and can optionally track carbon/emission metrics during execution.
 
 ## Features
 
-- **Excessive Logging Detection** - Detects functions with too many logging statements
 - **God Class Detection** - Identifies classes that are too large or complex
 - **Duplicated Code Detection** - Finds similar code blocks across your project
 - **Long Method Detection** - Detects methods that exceed size/complexity thresholds
-- **Dead Code Detection** - Identifies unused variables and functions
+- **Dead Code Detection** - Identifies unreachable/unused definitions
 - **Mutable Default Arguments** - Warns about mutable default arguments in functions
-- **Carbon Emissions Tracking** - Tracks the carbon footprint of your analysis (optional)
+- **Carbon Emissions Tracking** - Tracks the carbon footprint of execution (optional)
 
-## Installation
+## Setup (venv)
 
 ```bash
-pip install pygreenense
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pip install -e .
 ```
 
-## Quick Start
-
-## If some dependency not install. You can install it following this command
+If `codecarbon` is missing, install it:
 
 ```bash
 pip install codecarbon
 ```
 
-### Run analysis on current project (from root directory)
+## Run the Library
+
+### Installed command
 
 ```bash
-pygreensense run
-```
-
-### Run analysis on specific directory
-
-```bash
+pygreensense .
 pygreensense ./src
-pygreensense ./my_project
+pygreensense ./some_file.py
 ```
 
-### Run analysis on single file
+### Local source command (without install)
 
 ```bash
-pygreensense myfile.py
-pygreensense ./src/utils.py
+python -m src.green_code_smell.cli .
 ```
 
-## Usage with Rule Parameters
+### Common options
 
-### Disable specific checks
-
-Disable excessive logging detection:
-```bash
-pygreensense run --no-log-check
-```
-
-Disable God Class detection:
 ```bash
 pygreensense . --no-god-class
-```
-
-Disable duplicated code detection:
-```bash
 pygreensense . --no-dup-check
+pygreensense . --no-long-method
+pygreensense . --no-dead-code
+pygreensense . --no-mutable-default
+pygreensense . --no-carbon
 ```
 
-### God Class Parameters
+### Rule tuning examples
 
-Customize God Class thresholds:
 ```bash
-pygreensense run --max-methods 8 --max-cc 30 --max-loc 150
-```
-
-- `--max-methods` - Maximum allowed methods in a class (default: 10)
-- `--max-cc` - Maximum cyclomatic complexity (default: 35)
-- `--max-loc` - Maximum lines of code (default: 100)
-
-### Duplicated Code Parameters
-
-Fine-tune duplicate detection:
-```bash
+pygreensense . --max-methods 8 --max-cc 30 --max-loc 150
 pygreensense . --dup-similarity 0.80 --dup-min-statements 5
+pygreensense . --method-max-loc 30 --max-cyclomatic 3
 ```
 
-- `--dup-similarity` - Similarity threshold 0.0-1.0 (default: 0.85)
-- `--dup-min-statements` - Minimum statements to check (default: 3)
-
-### Long Method Parameters
-
-Control method length detection:
-```bash
-pygreensense run --method-max-loc 30 --max-cyclomatic 3
-```
-
-- `--method-max-loc` - Maximum lines of code for method (default: 25)
-- `--max-cyclomatic` - Maximum cyclomatic complexity (default: 10)
-
-## Advanced Options
-
-### Disable carbon tracking
+## Run Unit Tests
 
 ```bash
-pygreensense run --no-carbon
+source .venv/bin/activate
+pytest tests/unit
 ```
 
-### Combine multiple options
+### Run tests with coverage
 
 ```bash
-pygreensense ./src --no-log-check --max-methods 8 --dup-similarity 0.80
+pytest tests/unit --cov=src/green_code_smell --cov-report=term-missing
 ```
 
-## Examples
+## Carbon Emission Comparison Validation
 
-Analyze entire project with strict rules:
-```bash
-pygreensense run --max-methods 5 --method-max-loc 20
-```
+This repository includes a comparison note in `carbon_emission_validate` to cross-check carbon readings between approaches.
 
-Analyze specific directory, skip logging checks:
-```bash
-pygreensense ./app --no-log-check
-```
+### Snapshot from `carbon_emission_validate`
 
-Analyze with custom duplicated code detection:
-```bash
-pygreensense . --dup-similarity 0.90 --dup-min-statements 10
-```
+- **pygreensense**
+  - Average carbon emission: `1.7463339e-07 kg CO2`
+  - Min carbon emission: `1.516343e-07 kg CO2`
+  - Max carbon emission: `2.863806e-07 kg CO2`
+  - Average diff between consecutive runs (signed): `-4.5652333e-09 kg CO2`
+  - Average absolute diff between consecutive runs: `3.8392633e-08 kg CO2`
+- **codeCarbon**
+  - Average carbon emission: `2.488713665990e-09 kgCO2eq`
+  - Min carbon emission: `1.404247309062e-09 kgCO2eq`
+  - Max carbon emission: `4.240361297175e-09 kgCO2eq`
+  - Average diff (signed): `-3.151237764570e-10 kgCO2eq`
+  - Average absolute diff: `5.768756903969e-10 kgCO2eq`
+
+Using `tests/validate_parity.py` to validate parity between both methods:
+
+- Direct avg: `9.085950555049e-06 kgCO2eq`
+- Lib avg: `9.032015317825e-06 kgCO2eq`
+- Mean absolute percentage difference: `0.59%`
+- Ratio (`lib/direct`): `0.9941x`
+
+This parity check isolates carbon-emission workflows and helps verify that library-level metrics are close to direct measurements.
 
 ## Output
 
-The tool provides detailed analysis with:
+The tool provides:
+
 - Issue location (file and line number)
-- Issue type/rule
-- Issue description
-- Summary statistics grouped by rule type
+- Rule/category
+- Human-readable issue description
+- Summary statistics grouped by rule
 
 ## License
 
-MIT License - see LICENSE file for details
-
-## Contributing
-
-Contributions are welcome! Please check our GitHub repository for issues and pull requests.
+MIT License - see `LICENSE`.
 
 ## Support
 
-For bugs, feature requests, or questions, please visit:
-https://github.com/chocody/green_code_smell/issues
+For bugs, feature requests, or questions:
+[https://github.com/chocody/green_code_smell/issues](https://github.com/chocody/green_code_smell/issues)

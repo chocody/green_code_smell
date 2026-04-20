@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import List
+from codecarbon import EmissionsTracker
 
 FIXED_VACATION_DAYS_PAYOUT = 5  # The fixed nr of vacation days that can be paid out.
 
@@ -126,5 +127,21 @@ def main() -> None:
     company.employees[0].take_a_holiday()
     company.employees[1].payout_a_holiday()
 
+
+def run_with_codecarbon(iterations: int = 10) -> None:
+    """Run main multiple times and track emissions per run with CodeCarbon."""
+    for run in range(1, iterations + 1):
+        tracker = EmissionsTracker(
+            project_name="employee_management_after",
+            output_file=f"emissions_after_run.csv",
+        )
+        tracker.start()
+        try:
+            main()
+        finally:
+            emissions = tracker.stop()
+        print(f"Run {run}/{iterations} - emissions: {emissions} kgCO2eq")
+
+
 if __name__ == "__main__":
-    main()
+    run_with_codecarbon(iterations=10)
