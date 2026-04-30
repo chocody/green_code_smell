@@ -1,7 +1,7 @@
 # PyGreenSense
 
 PyGreenSense is a Python code analysis tool that detects green code smells and
-can optionally track carbon emission metrics during execution.
+tracks carbon emission metrics during execution.
 
 ## Features
 
@@ -10,7 +10,7 @@ can optionally track carbon emission metrics during execution.
 - Long Method detection
 - Dead code detection
 - Mutable default argument detection
-- Optional carbon emissions tracking with CodeCarbon
+- Carbon emissions tracking with CodeCarbon
 
 ## Installation
 
@@ -20,11 +20,7 @@ Install the static-analysis tool:
 pip install pygreensense
 ```
 
-Install with carbon tracking support:
-
-```bash
-pip install "pygreensense[carbon]"
-```
+CodeCarbon is installed automatically with PyGreenSense.
 
 ## CLI Usage
 

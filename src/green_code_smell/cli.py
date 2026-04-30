@@ -1124,7 +1124,7 @@ def carbon_track(path, args, total_loc=0, smell_breakdown=None):
 
     if not CODECARBON_AVAILABLE:
         print("⚠️  Warning: codecarbon is not installed. Carbon tracking disabled.")
-        print("   Install with: pip install 'pygreensense[carbon]'\n")
+        print("   Install with: pip install pygreensense\n")
         return
 
     target_file = _resolve_carbon_target_file(path, args)
