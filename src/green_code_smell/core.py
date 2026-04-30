@@ -4,7 +4,7 @@ from pathlib import Path
 
 def analyze_file(file_path, rules, project_root=None):
     """Analyze a single file with given rules"""
-    code = Path(file_path).read_text()
+    code = Path(file_path).read_text(encoding="utf-8")
     tree = ast.parse(code)
     issues = []
 
@@ -45,7 +45,7 @@ def analyze_project(project_path, rules):
             for py_file in py_files:
                 if not any(parent.name in exclude_dirs for parent in py_file.parents):
                     try:
-                        code = py_file.read_text()
+                        code = py_file.read_text(encoding="utf-8")
                         tree = ast.parse(code)
                         rule_issues = rule.check(tree)
                         # Add file path to each issue

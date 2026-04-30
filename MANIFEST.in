@@ -1,12 +1,14 @@
 include README.md
 include LICENSE
 include pyproject.toml
+include setup.py
 
 graft src
+graft docs
 prune tests
 
 exclude .coverage
 exclude .coveragerc
-exclude carbon_emission_validate
 exclude tests/powermetrics_log.txt
 exclude tests/history.json
+global-exclude __pycache__ *.py[cod] .DS_Store
