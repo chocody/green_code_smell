@@ -7,36 +7,21 @@ import ast
 import json
 import os
 
-# Try to import from installed package first, then relative
-try:
-    from green_code_smell.core import analyze_file
-    from green_code_smell.rules.god_class import GodClassRule
-    from green_code_smell.rules.duplicated_code import DuplicatedCodeRule
-    from green_code_smell.rules.long_method import LongMethodRule
-    from green_code_smell.rules.dead_code import DeadCodeRule
-    from green_code_smell.rules.mutable_default_arguments import MutableDefaultArgumentsRule
-    from green_code_smell.core import analyze_project, analyze_file
-    from green_code_smell.constants import BREAK_LINE_NO, KG_GRAMS, SEC_HOUR
-except ImportError:
-    import os
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-    from src.green_code_smell.core import analyze_file
-    from src.green_code_smell.rules.god_class import GodClassRule
-    from src.green_code_smell.rules.duplicated_code import DuplicatedCodeRule
-    from src.green_code_smell.rules.long_method import LongMethodRule
-    from src.green_code_smell.rules.dead_code import DeadCodeRule
-    from src.green_code_smell.rules.mutable_default_arguments import MutableDefaultArgumentsRule
-    from src.green_code_smell.core import analyze_project, analyze_file
-    from src.green_code_smell.constants import BREAK_LINE_NO, KG_GRAMS, SEC_HOUR
+from green_code_smell.constants import BREAK_LINE_NO, KG_GRAMS, SEC_HOUR
+from green_code_smell.core import analyze_file, analyze_project
+from green_code_smell.rules.dead_code import DeadCodeRule
+from green_code_smell.rules.duplicated_code import DuplicatedCodeRule
+from green_code_smell.rules.god_class import GodClassRule
+from green_code_smell.rules.long_method import LongMethodRule
+from green_code_smell.rules.mutable_default_arguments import MutableDefaultArgumentsRule
 
-# Import CodeCarbon
 try:
     from codecarbon import EmissionsTracker
-    CODECARBON_AVAILABLE = True
 except ImportError:
+    EmissionsTracker = None
     CODECARBON_AVAILABLE = False
-    print("⚠️  Warning: codecarbon not installed. Carbon tracking disabled.")
-    print("   Install with: pip install codecarbon\n")
+else:
+    CODECARBON_AVAILABLE = True
 
 def calculate_cosmic_cfp(file_path):
     """
@@ -1134,7 +1119,12 @@ def carbon_track(path, args, total_loc=0, smell_breakdown=None):
         Per-function breakdown table.
         Skipped if --no-per-function is passed.
     """
-    if not CODECARBON_AVAILABLE or args.no_carbon:
+    if args.no_carbon:
+        return
+
+    if not CODECARBON_AVAILABLE:
+        print("⚠️  Warning: codecarbon is not installed. Carbon tracking disabled.")
+        print("   Install with: pip install 'pygreensense[carbon]'\n")
         return
 
     target_file = _resolve_carbon_target_file(path, args)

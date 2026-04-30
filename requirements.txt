@@ -1,5 +1,2 @@
-# requirements.txt (for development only)
-codecarbon>=1.25.0
-pytest>=7.0.0
-build>=0.10.0
-twine>=4.0.0
+# requirements.txt is for local development only.
+-e .[dev]
